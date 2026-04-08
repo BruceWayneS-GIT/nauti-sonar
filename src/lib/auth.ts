@@ -38,8 +38,26 @@ export async function destroySession() {
   (await cookies()).delete(COOKIE_NAME);
 }
 
+/**
+ * Parse users from AUTH_USERS env var (format: "user1:pass1,user2:pass2")
+ * Falls back to AUTH_USERNAME/AUTH_PASSWORD for single-user setup.
+ */
+function getUsers(): { username: string; password: string }[] {
+  const usersEnv = process.env.AUTH_USERS;
+  if (usersEnv) {
+    return usersEnv.split(',').map((entry) => {
+      const [username, password] = entry.trim().split(':');
+      return { username, password };
+    });
+  }
+  // Fallback to single-user env vars
+  return [{
+    username: process.env.AUTH_USERNAME || 'admin',
+    password: process.env.AUTH_PASSWORD || 'NautiSonar2024!',
+  }];
+}
+
 export function validateCredentials(username: string, password: string): boolean {
-  const validUsername = process.env.AUTH_USERNAME || 'admin';
-  const validPassword = process.env.AUTH_PASSWORD || 'NautiSonar2024!';
-  return username === validUsername && password === validPassword;
+  const users = getUsers();
+  return users.some((u) => u.username === username && u.password === password);
 }
