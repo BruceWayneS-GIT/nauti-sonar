@@ -1,0 +1,335 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Users ───────────────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  role      String   @default("member")
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignedArticles Article[]       @relation("AssignedArticles")
+  statusChanges    ArticleStatusHistory[]
+  outreachItems    OutreachItem[]
+
+  @@map("users")
+}
+
+// ─── Sources ─────────────────────────────────────────────────────────────────
+
+model Source {
+  id                String       @id @default(cuid())
+  name              String
+  rootUrl           String       @unique
+  crawlMethod       CrawlMethod  @default(SITEMAP)
+  crawlFrequency    Int          @default(60)
+  status            SourceStatus @default(ACTIVE)
+  notes             String?
+  parserConfig      Json?
+  contactConfig     Json?
+  lastCrawledAt     DateTime?
+  articleCount      Int          @default(0)
+  errorCount        Int          @default(0)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  articles          Article[]
+  crawlJobs         CrawlJob[]
+  contactFindings   ContactFinding[]
+
+  @@map("sources")
+}
+
+enum CrawlMethod {
+  RSS
+  SITEMAP
+  ARCHIVE_PAGES
+  SELECTOR_PARSER
+  CUSTOM_PARSER
+}
+
+enum SourceStatus {
+  ACTIVE
+  PAUSED
+  ERROR
+}
+
+// ─── Crawl Jobs ──────────────────────────────────────────────────────────────
+
+model CrawlJob {
+  id            String         @id @default(cuid())
+  sourceId      String
+  status        CrawlJobStatus @default(PENDING)
+  type          String         @default("full")
+  articlesFound Int            @default(0)
+  articlesSaved Int            @default(0)
+  errorsCount   Int            @default(0)
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime       @default(now())
+
+  source        Source         @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  logs          CrawlLog[]
+
+  @@map("crawl_jobs")
+}
+
+enum CrawlJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model CrawlLog {
+  id         String   @id @default(cuid())
+  crawlJobId String
+  level      String   @default("info")
+  message    String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  crawlJob   CrawlJob @relation(fields: [crawlJobId], references: [id], onDelete: Cascade)
+
+  @@map("crawl_logs")
+}
+
+// ─── Articles ────────────────────────────────────────────────────────────────
+
+model Article {
+  id              String            @id @default(cuid())
+  sourceId        String
+  url             String
+  canonicalUrl    String?
+  urlHash         String            @unique
+  title           String
+  excerpt         String?
+  author          String?
+  publishedAt     DateTime?
+  category        String?
+  tags            String[]          @default([])
+  status          ArticleStatus     @default(NEW)
+  priority        Int               @default(0)
+  ownerId         String?
+  outreachChannel String?
+  outreachNotes   String?
+  internalNotes   String?
+  sentAt          DateTime?
+  completedAt     DateTime?
+  campaignId      String?
+  crawledAt       DateTime          @default(now())
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  // Scraped outbound data from article page
+  scrapedEmails        String[]          @default([])
+  outboundLinks        Json?             // Array of { url, text, type }
+  linkedinUrls         String[]          @default([])
+  twitterUrls          String[]          @default([])
+  companyUrls          String[]          @default([])
+
+  // Emails discovered by scraping the company websites linked from this article
+  websiteEmails            String[]          @default([])
+  websiteEmailsScrapedAt   DateTime?
+
+  contactEmail         String?
+  contactUrl           String?
+  contactType          ContactType?
+  contactConfidence    ContactConfidence?
+  contactFoundOnUrl    String?
+  contactLastCheckedAt DateTime?
+
+  source          Source            @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  owner           User?             @relation("AssignedArticles", fields: [ownerId], references: [id])
+  campaign        Campaign?         @relation(fields: [campaignId], references: [id])
+  statusHistory   ArticleStatusHistory[]
+  contactFindings ContactFinding[]
+  contactRuns     ContactDiscoveryRun[]
+  outreachItems   OutreachItem[]
+
+  @@index([sourceId])
+  @@index([status])
+  @@index([ownerId])
+  @@index([publishedAt])
+  @@index([contactConfidence])
+  @@map("articles")
+}
+
+enum ArticleStatus {
+  NEW
+  REVIEWING
+  READY
+  SENT
+  COMPLETED
+  ARCHIVED
+}
+
+enum ContactType {
+  DIRECT_AUTHOR
+  EDITORIAL
+  GENERIC_INBOX
+  CONTACT_PAGE_ONLY
+  NONE
+}
+
+enum ContactConfidence {
+  HIGH
+  MEDIUM
+  LOW
+  MINIMAL
+  NONE
+}
+
+// ─── Article Status History ──────────────────────────────────────────────────
+
+model ArticleStatusHistory {
+  id         String         @id @default(cuid())
+  articleId  String
+  fromStatus ArticleStatus?
+  toStatus   ArticleStatus
+  changedBy  String?
+  note       String?
+  createdAt  DateTime       @default(now())
+
+  article    Article        @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  user       User?          @relation(fields: [changedBy], references: [id])
+
+  @@index([articleId])
+  @@map("article_status_history")
+}
+
+// ─── Contact Discovery ──────────────────────────────────────────────────────
+
+model ContactDiscoveryRun {
+  id           String   @id @default(cuid())
+  articleId    String
+  status       String   @default("pending")
+  pagesScanned Int      @default(0)
+  emailsFound  Int      @default(0)
+  startedAt    DateTime?
+  completedAt  DateTime?
+  error        String?
+  createdAt    DateTime @default(now())
+
+  article      Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  findings     ContactFinding[]
+
+  @@index([articleId])
+  @@map("contact_discovery_runs")
+}
+
+model ContactFinding {
+  id              String            @id @default(cuid())
+  articleId       String
+  sourceId        String
+  runId           String?
+  email           String?
+  normalizedEmail String?
+  contactUrl      String?
+  discoveredOnUrl String
+  contactType     ContactType
+  confidence      ContactConfidence
+  sourceContext   String
+  rawSnippet      String?
+  lastVerifiedAt  DateTime?
+  createdAt       DateTime          @default(now())
+
+  article         Article           @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  source          Source            @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  run             ContactDiscoveryRun? @relation(fields: [runId], references: [id])
+
+  @@index([articleId])
+  @@index([normalizedEmail])
+  @@map("contact_findings")
+}
+
+// ─── Campaigns ───────────────────────────────────────────────────────────────
+
+model Campaign {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  status      String   @default("draft")
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  articles      Article[]
+  outreachItems OutreachItem[]
+  contacts      CampaignContact[]
+
+  @@map("campaigns")
+}
+
+// ─── Contacts ────────────────────────────────────────────────────────────────
+
+model Contact {
+  id          String   @id @default(cuid())
+  name        String
+  email       String   @unique
+  title       String?
+  publication String?
+  website     String?
+  linkedinUrl String?
+  twitterUrl  String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  outreachItems OutreachItem[]
+  campaigns     CampaignContact[]
+
+  @@map("contacts")
+}
+
+model CampaignContact {
+  id         String   @id @default(cuid())
+  campaignId String
+  contactId  String
+  createdAt  DateTime @default(now())
+
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact    Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, contactId])
+  @@map("campaign_contacts")
+}
+
+// ─── Outreach Items ──────────────────────────────────────────────────────────
+
+model OutreachItem {
+  id         String    @id @default(cuid())
+  articleId  String
+  contactId  String?
+  campaignId String?
+  assignedTo String?
+  status     String    @default("queued")
+  subject    String?
+  body       String?
+  sentAt     DateTime?
+  repliedAt  DateTime?
+  notes      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  article    Article   @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  contact    Contact?  @relation(fields: [contactId], references: [id])
+  campaign   Campaign? @relation(fields: [campaignId], references: [id])
+  assignee   User?     @relation(fields: [assignedTo], references: [id])
+
+  @@index([articleId])
+  @@index([status])
+  @@map("outreach_items")
+}
