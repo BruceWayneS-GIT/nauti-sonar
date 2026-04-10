@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { scrapeWebsiteEmails } from '@/services/crawler/website-email-scraper';
 
+export const maxDuration = 300; // 5 minutes
+
 /**
  * POST /api/articles/scrape-websites
  * Second-pass scrape: visit the company websites found in articles

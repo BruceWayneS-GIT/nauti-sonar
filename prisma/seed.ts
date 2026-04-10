@@ -1,10 +1,16 @@
 import 'dotenv/config';
 import { PrismaClient } from '../src/generated/prisma';
-import { PrismaPg } from '@prisma/adapter-pg';
-import { Pool } from 'pg';
+import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const adapter = new PrismaPg(pool);
+const url = new URL(process.env.DATABASE_URL!);
+const adapter = new PrismaMariaDb({
+  host: url.hostname,
+  port: Number(url.port || 3306),
+  user: decodeURIComponent(url.username),
+  password: decodeURIComponent(url.password),
+  database: url.pathname.replace('/', ''),
+  connectionLimit: 5,
+});
 const prisma = new PrismaClient({ adapter });
 
 function hashUrl(url: string): string {
@@ -18,24 +24,24 @@ async function main() {
   // ─── Users ────────────────────────────────────────────────────────────────
   const users = await Promise.all([
     prisma.user.upsert({
-      where: { email: 'sarah@nautilusmarketing.co.uk' },
+      where: { email: 'bruce@nautilusmarketing.digital' },
       update: {},
-      create: { name: 'Sarah Mitchell', email: 'sarah@nautilusmarketing.co.uk', role: 'admin' },
+      create: { name: 'Bruce', email: 'bruce@nautilusmarketing.digital', role: 'admin' },
     }),
     prisma.user.upsert({
-      where: { email: 'james@nautilusmarketing.co.uk' },
+      where: { email: 'elke@nautilusmarketing.digital' },
       update: {},
-      create: { name: 'James Cooper', email: 'james@nautilusmarketing.co.uk', role: 'member' },
+      create: { name: 'Elke', email: 'elke@nautilusmarketing.digital', role: 'member' },
     }),
     prisma.user.upsert({
-      where: { email: 'emma@nautilusmarketing.co.uk' },
+      where: { email: 'tom@nautilusmarketing.digital' },
       update: {},
-      create: { name: 'Emma Rhodes', email: 'emma@nautilusmarketing.co.uk', role: 'member' },
+      create: { name: 'Tom', email: 'tom@nautilusmarketing.digital', role: 'member' },
     }),
     prisma.user.upsert({
-      where: { email: 'alex@nautilusmarketing.co.uk' },
+      where: { email: 'cam@nautilusmarketing.digital' },
       update: {},
-      create: { name: 'Alex Hartley', email: 'alex@nautilusmarketing.co.uk', role: 'member' },
+      create: { name: 'Cam', email: 'cam@nautilusmarketing.digital', role: 'member' },
     }),
   ]);
 

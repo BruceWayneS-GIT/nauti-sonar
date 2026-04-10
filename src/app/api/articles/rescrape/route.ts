@@ -4,6 +4,8 @@ import { Prisma } from '@/generated/prisma';
 import { extractArticleMetadata } from '@/services/crawler/article-metadata';
 import { scrapeWebsiteEmails } from '@/services/crawler/website-email-scraper';
 
+export const maxDuration = 300; // 5 minutes
+
 /**
  * POST /api/articles/rescrape
  * Re-scrape article pages to extract outbound links and emails.
