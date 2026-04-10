@@ -37,7 +37,7 @@ This guide walks you through deploying the app on your Plesk server using Git au
 1. In Plesk, go to **Databases** → **Add Database**
 2. Set the type to **MySQL** (MariaDB)
 3. Database name: `nauti_sonar`
-4. Create a database user and note the username and password
+4. Create a database user and note the username and password `UN:BruceSonar PW:Lgi~yvYi8n^1T1pa`
 
 
 ## Step 4 — Add Environment Variables
@@ -50,9 +50,9 @@ Since the `.env` file is not included in the Git repo (for security), you need t
 
 | Variable | Value |
 |----------|-------|
-| `DATABASE_URL` | `mysql://YOUR_DB_USER:YOUR_DB_PASSWORD@localhost:3306/nauti_sonar` |
-| `AUTH_SECRET` | Pick a long random string (at least 32 characters) |
-| `AUTH_USERS` | `admin:NautiSonar2024!,Bruce:Bruce2026!` |
+| `DATABASE_URL` | `mysql://BruceSonar:Lgi~yvYi8n^1T1pa@localhost:3306/nauti_sonar` |
+| `AUTH_SECRET` | `3ti+KQodMh+ojIZ8Uc846LCGEDwkzAtOqFj7Z04wW3vD+yxskWc2H5RuORnA+uIU`  |
+| `AUTH_USERS` | `admin:NautiSonar2024!,Bruce:Bruce2026!,Elke:Elke2026!,Tom:Tom2026!,Cam:Cam2026!` |
 
 Replace `YOUR_DB_USER` and `YOUR_DB_PASSWORD` with the credentials from Step 3.
 
