@@ -61,7 +61,7 @@ function ArticlesPageContent() {
   // Filters
   const [search, setSearch] = useState('');
   const [filterSource, setFilterSource] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
+  const [filterStatus, setFilterStatus] = useState('NEW');
   const [filterHasEmail, setFilterHasEmail] = useState('');
   const [filterConfidence, setFilterConfidence] = useState('');
   const [filterLeads, setFilterLeads] = useState('');
