@@ -1,7 +1,15 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 
+export async function GET() {
+  return seedUsers();
+}
+
 export async function POST() {
+  return seedUsers();
+}
+
+async function seedUsers() {
   const teamMembers = [
     { name: 'Bruce', email: 'bruce@nautilusmarketing.digital', role: 'admin' },
     { name: 'Elke', email: 'elke@nautilusmarketing.digital', role: 'member' },
