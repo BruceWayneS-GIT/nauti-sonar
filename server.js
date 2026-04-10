@@ -1,10 +1,15 @@
-const path = require('path');
+const { createServer } = require('http');
+const { parse } = require('url');
+const next = require('next');
 
-process.chdir(__dirname);
-process.env.NODE_ENV = 'production';
+const app = next({ dir: __dirname, dev: false });
+const handle = app.getRequestHandler();
 
-// Passenger sets the PORT via the 'passenger' binding
-// Next.js reads process.argv for the command
-process.argv = [process.argv[0], 'start', '-p', process.env.PORT || '3000'];
-
-require(path.join(__dirname, 'node_modules', 'next', 'dist', 'bin', 'next'));
+app.prepare().then(() => {
+  createServer((req, res) => {
+    const parsedUrl = parse(req.url, true);
+    handle(req, res, parsedUrl);
+  }).listen(process.env.PORT || 3000, () => {
+    console.log('> Ready on port ' + (process.env.PORT || 3000));
+  });
+});
