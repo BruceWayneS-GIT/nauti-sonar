@@ -1,6 +1,6 @@
 # Deploying Nauti Sonar to sonar.nautilusmarketing.digital
 
-This guide walks you through deploying the app on your Plesk server step by step.
+This guide walks you through deploying the app on your Plesk server using Git auto-deploy.
 
 
 ## What You Need
@@ -8,6 +8,7 @@ This guide walks you through deploying the app on your Plesk server step by step
 - Plesk panel access
 - PostgreSQL available on the server
 - Node.js 20+ enabled in Plesk
+- GitHub repo: `https://github.com/BruceWayneS-GIT/nauti-sonar.git`
 
 
 ## Step 1 — Create the Subdomain
@@ -31,59 +32,73 @@ This guide walks you through deploying the app on your Plesk server step by step
 4. Click **Enable Node.js**
 
 
-## Step 3 — Upload the Files
-
-A zip file is ready on your Desktop: `nauti-sonar.zip`
-
-1. In Plesk, go to **File Manager** for the subdomain
-2. Upload `nauti-sonar.zip` into the document root folder
-3. Click **Extract** on the zip file
-4. Delete the zip file after extracting
-
-
-## Step 4 — Create the Database
+## Step 3 — Create the Database
 
 1. In Plesk, go to **Databases** → **Add Database**
 2. Set the type to **PostgreSQL**
 3. Database name: `nauti_sonar`
-4. Create a database user (remember the username and password)
+4. Create a database user and note the username and password
 
 
-## Step 5 — Create the .env File
+## Step 4 — Add Environment Variables
 
-1. In **File Manager**, navigate to the document root
-2. Create a new file called `.env`
-3. Paste the following and fill in your database details:
+Since the `.env` file is not included in the Git repo (for security), you need to add the variables in Plesk.
 
-```
-DATABASE_URL="postgresql://YOUR_DB_USER:YOUR_DB_PASSWORD@localhost:5432/nauti_sonar?schema=public"
-AUTH_SECRET="pick-a-long-random-string-at-least-32-characters"
-AUTH_USERS="admin:NautiSonar2024!,Bruce:Bruce2026!"
-```
+1. Go to the subdomain → **Node.js**
+2. Scroll to **Application Environment Variables**
+3. Add these three variables:
 
-Replace `YOUR_DB_USER` and `YOUR_DB_PASSWORD` with the credentials from Step 4.
+| Variable | Value |
+|----------|-------|
+| `DATABASE_URL` | `postgresql://YOUR_DB_USER:YOUR_DB_PASSWORD@localhost:5432/nauti_sonar?schema=public` |
+| `AUTH_SECRET` | Pick a long random string (at least 32 characters) |
+| `AUTH_USERS` | `admin:NautiSonar2024!,Bruce:Bruce2026!` |
 
-
-## Step 6 — Install and Build
-
-Open the SSH terminal in Plesk (or SSH into the server) and run these commands from the document root:
-
-```bash
-npm install
-npx prisma generate
-npx prisma db push
-npm run build
-```
-
-This will take a few minutes.
+Replace `YOUR_DB_USER` and `YOUR_DB_PASSWORD` with the credentials from Step 3.
 
 
-## Step 7 — Start the App
+## Step 5 — Set Up Git Deployment
 
-Go back to the **Node.js** panel for the subdomain and click **Restart App**.
+1. Go to the `sonar.nautilusmarketing.digital` subdomain
+2. Click **Git**
+3. Select **Remote** repository
+4. Enter the repository URL:
+   ```
+   https://github.com/BruceWayneS-GIT/nauti-sonar.git
+   ```
+5. Click OK to pull the repo
+
+### Enable Auto-Build on Deploy
+
+1. In the Git panel, click **Repository Settings**
+2. Check **Enable additional deploy actions**
+3. In the command box, paste:
+   ```
+   npm install && npx prisma generate && npx prisma db push && npm run build
+   ```
+4. Click OK
+
+### Set Up Auto-Deploy from GitHub
+
+This makes it so every `git push` automatically deploys to the server.
+
+1. In the Plesk Git panel, copy the **Webhook URL**
+2. Go to your GitHub repo → **Settings** → **Webhooks** → **Add webhook**
+3. Fill in:
+   - **Payload URL**: Paste the webhook URL from Plesk
+   - **Content type**: `application/json`
+   - **Which events**: Just the push event
+4. Click **Add webhook**
 
 
-## Step 8 — Set Up SSL (if needed)
+## Step 6 — Initial Deploy
+
+1. In the Plesk Git panel, click **Deploy**
+2. Wait for it to pull the code, install dependencies, and build (this takes a few minutes the first time)
+3. Once done, go to the **Node.js** panel and click **Restart App**
+
+
+## Step 7 — Set Up SSL (if needed)
 
 1. Go to the subdomain → **SSL/TLS Certificates**
 2. Click **Install** under Let's Encrypt
@@ -100,44 +115,57 @@ Your app is now live at **https://sonar.nautilusmarketing.digital**
 | admin    | NautiSonar2024!  |
 | Bruce    | Bruce2026!       |
 
-To add more users later, edit the `AUTH_USERS` line in `.env`:
+To add more users, update the `AUTH_USERS` environment variable in Plesk's Node.js panel:
 
 ```
-AUTH_USERS="admin:NautiSonar2024!,Bruce:Bruce2026!,NewUser:NewPassword123!"
+admin:NautiSonar2024!,Bruce:Bruce2026!,NewUser:NewPassword123!
 ```
 
-Then restart the app in the Node.js panel.
+Then restart the app.
 
 
-## Updating the App Later
+## Pushing Updates
 
-When you make changes locally:
+After the initial setup, deploying changes is simple:
 
-1. Run `npm run build` locally to check it works
-2. Zip the updated files (same as before, excluding `node_modules`, `.next`, `.env`)
-3. Upload and extract to the server
-4. SSH in and run:
-   ```bash
-   npm install
-   npx prisma generate
-   npx prisma db push
-   npm run build
-   ```
-5. Restart the app in Plesk
+```bash
+# On your Mac, make your changes then:
+git add -A
+git commit -m "Description of changes"
+git push
+```
+
+That's it. Plesk will automatically:
+1. Pull the latest code
+2. Run `npm install`
+3. Generate the Prisma client
+4. Update the database schema if needed
+5. Build the app
+
+The app restarts automatically after the build completes.
 
 
 ## Troubleshooting
 
+**Deploy action fails?**
+- SSH into the server and check the Node.js version: `node -v`
+- Make sure it's 20 or higher
+- Try running the deploy commands manually from the document root
+
 **App won't start?**
 - Check the Node.js error log in Plesk
-- Make sure `.env` exists and has the correct database URL
-- Make sure you ran `npm run build`
+- Make sure environment variables are set correctly
+- Make sure the build completed successfully
 
 **Database connection error?**
-- Verify the database credentials in `.env`
-- Make sure PostgreSQL is running on the server
+- Verify the `DATABASE_URL` environment variable in Plesk
+- Make sure PostgreSQL is running
 - Check that the database `nauti_sonar` exists
 
+**Webhook not triggering?**
+- Check GitHub → Settings → Webhooks → Recent Deliveries for errors
+- If Plesk uses a self-signed SSL certificate, try using `http://` instead of `https://` for the webhook URL
+
 **Login not working?**
-- Check the `AUTH_USERS` line in `.env` — format must be `user:pass,user:pass`
-- Restart the app after changing `.env`
+- Check the `AUTH_USERS` environment variable format: `user:pass,user:pass`
+- Restart the app after changing environment variables
