@@ -25,16 +25,20 @@ export async function POST(request: NextRequest) {
   const articleIds = body.articleIds as string[] | undefined;
 
   if (articleIds?.length) {
-    const items = await prisma.outreachItem.createManyAndReturn({
-      data: articleIds.map((articleId: string) => ({
-        articleId,
-        contactId: body.contactId || null,
-        campaignId: body.campaignId || null,
-        assignedTo: body.assignedTo || null,
-        subject: body.subject || null,
-        body: body.body || null,
-        notes: body.notes || null,
-      })),
+    const data = articleIds.map((articleId: string) => ({
+      articleId,
+      contactId: body.contactId || null,
+      campaignId: body.campaignId || null,
+      assignedTo: body.assignedTo || null,
+      subject: body.subject || null,
+      body: body.body || null,
+      notes: body.notes || null,
+    }));
+    await prisma.outreachItem.createMany({ data });
+    const items = await prisma.outreachItem.findMany({
+      where: { articleId: { in: articleIds } },
+      orderBy: { createdAt: 'desc' },
+      take: articleIds.length,
     });
     return NextResponse.json(items, { status: 201 });
   }

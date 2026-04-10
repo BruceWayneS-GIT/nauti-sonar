@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
   try {
     // Find articles that have company URLs but haven't been website-scraped yet
     const where: Record<string, unknown> = {
-      companyUrls: { isEmpty: false },
+      companyUrls: { not: [] },
       websiteEmailsScrapedAt: null,
     };
     if (sourceId) where.sourceId = sourceId;
@@ -47,18 +47,23 @@ export async function POST(request: NextRequest) {
 
     for (const article of articles) {
       try {
-        const websiteEmails = await scrapeWebsiteEmails(article.companyUrls);
+        const companyUrls = (article.companyUrls || []) as string[];
+        const existingScrapedEmails = (article.scrapedEmails || []) as string[];
+        const linkedinUrls = (article.linkedinUrls || []) as string[];
+        const twitterUrls = (article.twitterUrls || []) as string[];
+
+        const websiteEmails = await scrapeWebsiteEmails(companyUrls);
 
         // Merge with existing scraped emails (dedup)
-        const existingEmails = new Set(article.scrapedEmails);
-        const newEmails = websiteEmails.filter((e) => !existingEmails.has(e));
-        const mergedScrapedEmails = [...article.scrapedEmails, ...newEmails];
+        const existingEmails = new Set(existingScrapedEmails);
+        const newEmails = websiteEmails.filter((e: string) => !existingEmails.has(e));
+        const mergedScrapedEmails = [...existingScrapedEmails, ...newEmails];
 
         // Check if article has any leads after website scraping
         const hasAnyLead = mergedScrapedEmails.length > 0 ||
-          article.linkedinUrls.length > 0 ||
-          article.twitterUrls.length > 0 ||
-          article.companyUrls.length > 0;
+          linkedinUrls.length > 0 ||
+          twitterUrls.length > 0 ||
+          companyUrls.length > 0;
 
         // Auto-archive if no leads found and not already archived
         const shouldArchive = !hasAnyLead && article.status !== 'ARCHIVED';

@@ -25,7 +25,7 @@ Article prospecting, contact discovery, and outreach management platform by Naut
 
 - **Frontend**: Next.js 16 (App Router), TypeScript, Tailwind CSS v4, Radix UI
 - **Backend**: Next.js API routes
-- **Database**: PostgreSQL with Prisma ORM
+- **Database**: MySQL/MariaDB with Prisma ORM
 - **Auth**: JWT sessions (jose)
 - **Scraping**: Cheerio (HTML parsing), custom parser architecture
 - **Charts**: Recharts
@@ -33,7 +33,7 @@ Article prospecting, contact discovery, and outreach management platform by Naut
 ## Prerequisites
 
 - Node.js 20+
-- PostgreSQL 15+
+- MySQL 8+ or MariaDB 10.5+
 
 ---
 
@@ -64,7 +64,7 @@ Upload all project files to the subdomain's document root via Plesk File Manager
 In the document root, create `.env`:
 
 ```env
-DATABASE_URL="postgresql://DB_USER:DB_PASSWORD@localhost:5432/nauti_sonar?schema=public"
+DATABASE_URL="mysql://DB_USER:DB_PASSWORD@localhost:3306/nauti_sonar"
 AUTH_SECRET="GENERATE_A_RANDOM_STRING"
 AUTH_USERS="admin:NautiSonar2024!,Bruce:Bruce2026!"
 ```
@@ -74,7 +74,7 @@ Replace `DB_USER` and `DB_PASSWORD` with your Plesk PostgreSQL credentials.
 ### 5. Set Up the Database
 
 - In Plesk → **Databases** → **Add Database**
-- Type: **PostgreSQL**
+- Type: **MySQL** (MariaDB)
 - Database name: `nauti_sonar`
 - Create a database user and note the credentials
 - Update the `DATABASE_URL` in `.env` with these credentials

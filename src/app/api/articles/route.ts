@@ -23,41 +23,40 @@ export async function GET(request: NextRequest) {
 
   if (search) {
     where.OR = [
-      { title: { contains: search, mode: 'insensitive' } },
-      { url: { contains: search, mode: 'insensitive' } },
-      { author: { contains: search, mode: 'insensitive' } },
-      { contactEmail: { contains: search, mode: 'insensitive' } },
+      { title: { contains: search } },
+      { url: { contains: search } },
+      { author: { contains: search } },
+      { contactEmail: { contains: search } },
     ];
   }
   if (source) where.sourceId = source;
   if (status) where.status = status as Prisma.EnumArticleStatusFilter;
   if (owner) where.ownerId = owner;
   if (confidence) where.contactConfidence = confidence as Prisma.EnumContactConfidenceNullableFilter;
-  if (category) where.category = { contains: category, mode: 'insensitive' };
+  if (category) where.category = { contains: category };
   if (hasEmail === 'true') where.contactEmail = { not: null };
   if (hasEmail === 'false') where.contactEmail = null;
-  if (leadsFilter === 'has_linkedin') where.linkedinUrls = { isEmpty: false };
-  if (leadsFilter === 'has_website') where.companyUrls = { isEmpty: false };
-  if (leadsFilter === 'has_twitter') where.twitterUrls = { isEmpty: false };
-  if (leadsFilter === 'has_email_scraped') where.scrapedEmails = { isEmpty: false };
-  if (leadsFilter === 'has_website_email') where.websiteEmails = { isEmpty: false };
+  if (leadsFilter === 'has_linkedin') where.linkedinUrls = { not: [] };
+  if (leadsFilter === 'has_website') where.companyUrls = { not: [] };
+  if (leadsFilter === 'has_twitter') where.twitterUrls = { not: [] };
+  if (leadsFilter === 'has_email_scraped') where.scrapedEmails = { not: [] };
+  if (leadsFilter === 'has_website_email') where.websiteEmails = { not: [] };
   if (leadsFilter === 'has_any') {
-    // Use AND to combine with existing OR (search) without conflict
     if (!where.AND) where.AND = [];
     (where.AND as Prisma.ArticleWhereInput[]).push({
       OR: [
-        { linkedinUrls: { isEmpty: false } },
-        { companyUrls: { isEmpty: false } },
-        { twitterUrls: { isEmpty: false } },
-        { scrapedEmails: { isEmpty: false } },
+        { linkedinUrls: { not: [] } },
+        { companyUrls: { not: [] } },
+        { twitterUrls: { not: [] } },
+        { scrapedEmails: { not: [] } },
       ],
     });
   }
   if (leadsFilter === 'no_leads') {
-    where.linkedinUrls = { isEmpty: true };
-    where.companyUrls = { isEmpty: true };
-    where.twitterUrls = { isEmpty: true };
-    where.scrapedEmails = { isEmpty: true };
+    where.linkedinUrls = { equals: [] };
+    where.companyUrls = { equals: [] };
+    where.twitterUrls = { equals: [] };
+    where.scrapedEmails = { equals: [] };
   }
   if (dateFrom) where.publishedAt = { ...((where.publishedAt as Prisma.DateTimeNullableFilter) || {}), gte: new Date(dateFrom) };
   if (dateTo) where.publishedAt = { ...((where.publishedAt as Prisma.DateTimeNullableFilter) || {}), lte: new Date(dateTo) };

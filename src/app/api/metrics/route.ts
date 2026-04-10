@@ -25,12 +25,12 @@ export async function GET() {
       where: {
         OR: [
           { contactEmail: { not: null } },
-          { scrapedEmails: { isEmpty: false } },
+          { scrapedEmails: { not: [] } },
         ],
       },
     }),
-    prisma.article.count({ where: { contactEmail: null, scrapedEmails: { isEmpty: true }, contactUrl: { not: null } } }),
-    prisma.article.count({ where: { contactEmail: null, scrapedEmails: { isEmpty: true }, contactUrl: null } }),
+    prisma.article.count({ where: { contactEmail: null, scrapedEmails: { equals: [] }, contactUrl: { not: null } } }),
+    prisma.article.count({ where: { contactEmail: null, scrapedEmails: { equals: [] }, contactUrl: null } }),
     prisma.article.count({ where: { status: 'READY' } }),
     prisma.article.count({ where: { status: 'SENT' } }),
     prisma.article.count({ where: { status: 'COMPLETED' } }),

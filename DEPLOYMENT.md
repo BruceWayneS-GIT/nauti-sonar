@@ -6,7 +6,7 @@ This guide walks you through deploying the app on your Plesk server using Git au
 ## What You Need
 
 - Plesk panel access
-- PostgreSQL available on the server
+- MariaDB/MySQL available on the server
 - Node.js 20+ enabled in Plesk
 - GitHub repo: `https://github.com/BruceWayneS-GIT/nauti-sonar.git`
 
@@ -35,7 +35,7 @@ This guide walks you through deploying the app on your Plesk server using Git au
 ## Step 3 — Create the Database
 
 1. In Plesk, go to **Databases** → **Add Database**
-2. Set the type to **PostgreSQL**
+2. Set the type to **MySQL** (MariaDB)
 3. Database name: `nauti_sonar`
 4. Create a database user and note the username and password
 
@@ -50,7 +50,7 @@ Since the `.env` file is not included in the Git repo (for security), you need t
 
 | Variable | Value |
 |----------|-------|
-| `DATABASE_URL` | `postgresql://YOUR_DB_USER:YOUR_DB_PASSWORD@localhost:5432/nauti_sonar?schema=public` |
+| `DATABASE_URL` | `mysql://YOUR_DB_USER:YOUR_DB_PASSWORD@localhost:3306/nauti_sonar` |
 | `AUTH_SECRET` | Pick a long random string (at least 32 characters) |
 | `AUTH_USERS` | `admin:NautiSonar2024!,Bruce:Bruce2026!` |
 
@@ -159,7 +159,7 @@ The app restarts automatically after the build completes.
 
 **Database connection error?**
 - Verify the `DATABASE_URL` environment variable in Plesk
-- Make sure PostgreSQL is running
+- Make sure MariaDB/MySQL is running
 - Check that the database `nauti_sonar` exists
 
 **Webhook not triggering?**
