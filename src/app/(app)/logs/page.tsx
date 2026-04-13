@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { ScrollText, AlertTriangle, CheckCircle2, Info, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { ScrollText, AlertTriangle, CheckCircle2, Info, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -75,34 +75,48 @@ export default function LogsPage() {
   const [statusHistory, setStatusHistory] = useState<StatusHistory[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     setPage(1);
   }, [tab]);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      const res = await fetch(`/api/logs?type=${tab}&page=${page}&pageSize=30`);
-      const data = await res.json();
-      setTotal(data.total);
+  const fetchData = useCallback(async () => {
+    const res = await fetch(`/api/logs?type=${tab}&page=${page}&pageSize=30`);
+    const data = await res.json();
+    setTotal(data.total);
 
-      switch (tab) {
-        case 'crawl': setCrawlJobs(data.items); break;
-        case 'crawl_logs': setCrawlLogs(data.items); break;
-        case 'contact_discovery': setContactRuns(data.items); break;
-        case 'status_history': setStatusHistory(data.items); break;
-      }
-    };
-    fetchData();
+    switch (tab) {
+      case 'crawl': setCrawlJobs(data.items); break;
+      case 'crawl_logs': setCrawlLogs(data.items); break;
+      case 'contact_discovery': setContactRuns(data.items); break;
+      case 'status_history': setStatusHistory(data.items); break;
+    }
   }, [tab, page]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchData();
+    setRefreshing(false);
+  };
 
   const totalPages = Math.ceil(total / 30);
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Logs & Activity</h1>
-        <p className="text-sm text-muted-foreground">System activity, crawl history, and audit trail</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Logs & Activity</h1>
+          <p className="text-sm text-muted-foreground">System activity, crawl history, and audit trail</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
+          <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
