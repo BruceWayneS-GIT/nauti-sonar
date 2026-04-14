@@ -78,7 +78,11 @@ export default function SourcesPage() {
     try {
       const res = await fetch(`/api/sources/${id}/crawl`, { method: 'POST' });
       const result = await res.json();
-      alert(`Crawl complete: ${result.articlesSaved} new articles saved (${result.articlesFound} found)`);
+      if (!res.ok) {
+        alert(result.error || 'Crawl failed. Check logs for details.');
+      } else {
+        alert(result.message || 'Crawl started — check the Logs page for progress');
+      }
     } catch {
       alert('Crawl failed. Check logs for details.');
     }
