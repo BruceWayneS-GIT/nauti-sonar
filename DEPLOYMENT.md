@@ -37,7 +37,7 @@ This guide walks you through deploying the app on your Plesk server using Git au
 1. In Plesk, go to **Databases** → **Add Database**
 2. Set the type to **MySQL** (MariaDB)
 3. Database name: `nauti_sonar`
-4. Create a database user and note the username and password `UN:BruceSonar PW:Lgi~yvYi8n^1T1pa`
+4. Create a database user and note the username and password (you'll need them in Step 4)
 
 
 ## Step 4 — Add Environment Variables
@@ -52,7 +52,7 @@ Since the `.env` file is not included in the Git repo (for security), you need t
 |----------|-------|
 | `DATABASE_URL` | `mysql://YOUR_DB_USER:YOUR_DB_PASSWORD@localhost:3306/nauti_sonar` |
 | `AUTH_SECRET` | Pick a long random string (at least 32 characters) |
-| `AUTH_USERS` | `admin:NautiSonar2024!,Bruce:Bruce2026!,Elke:Elke2026!,Tom:Tom2026!,Cam:Cam2026!` |
+| `AUTH_USERS` | `user1:password1,user2:password2` (comma-separated `username:password` pairs) |
 
 Replace `YOUR_DB_USER` and `YOUR_DB_PASSWORD` with the credentials from Step 3.
 
@@ -110,18 +110,13 @@ Your app is now live at **https://sonar.nautilusmarketing.digital**
 
 ## Login Accounts
 
-| Username | Password         |
-|----------|------------------|
-| admin    | NautiSonar2024!  |
-| Bruce    | Bruce2026!       |
-
-To add more users, update the `AUTH_USERS` environment variable in Plesk's Node.js panel:
+Login credentials are configured via the `AUTH_USERS` environment variable in Plesk's Node.js panel. The format is:
 
 ```
-admin:NautiSonar2024!,Bruce:Bruce2026!,NewUser:NewPassword123!
+username1:password1,username2:password2
 ```
 
-Then restart the app.
+To add or update users, edit the `AUTH_USERS` env var and restart the app.
 
 
 ## Pushing Updates
