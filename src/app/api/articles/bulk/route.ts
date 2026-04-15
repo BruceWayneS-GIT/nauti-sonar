@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
+import { mirrorArticleToSupabase } from '@/services/outreach/supabase-lead-sync';
 
 export async function PATCH(request: NextRequest) {
   const body = await request.json();
@@ -42,6 +43,16 @@ export async function PATCH(request: NextRequest) {
         where: { id: { in: articleIds } },
         data: updateData,
       });
+      // Mirror newly-SENT articles to Supabase `leads` (fire-and-forget)
+      if (status === 'SENT') {
+        for (const a of articles) {
+          if (a.status !== 'SENT') {
+            mirrorArticleToSupabase(a.id).catch((err) =>
+              console.error(`[supabase-sync] background sync failed for ${a.id}:`, err),
+            );
+          }
+        }
+      }
       break;
     }
     case 'set_campaign': {

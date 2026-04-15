@@ -53,6 +53,8 @@ Since the `.env` file is not included in the Git repo (for security), you need t
 | `DATABASE_URL` | `mysql://YOUR_DB_USER:YOUR_DB_PASSWORD@localhost:3306/nauti_sonar` |
 | `AUTH_SECRET` | Pick a long random string (at least 32 characters) |
 | `AUTH_USERS` | `user1:password1,user2:password2` (comma-separated `username:password` pairs) |
+| `SUPABASE_URL` | Your Supabase project URL (e.g. `https://xxxx.supabase.co`) — used to mirror SENT articles into the `leads` table |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase **service_role** key from Dashboard → Project Settings → API. Server-side only. Required for writes to the `leads` table |
 
 Replace `YOUR_DB_USER` and `YOUR_DB_PASSWORD` with the credentials from Step 3.
 
