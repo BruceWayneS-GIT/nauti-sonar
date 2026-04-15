@@ -32,15 +32,16 @@ export async function mirrorArticleToSupabase(articleId: string): Promise<void> 
     [article.outreachNotes, article.internalNotes].filter(Boolean).join('\n\n') || null;
 
   const row = {
-    id: article.id,
+    id: article.title,
     date: article.sentAt ? article.sentAt.toISOString().slice(0, 10) : null,
     email,
     rep: article.owner?.name ?? null,
-    source: article.source?.name ?? null,
-    service: article.outreachChannel ?? null,
-    status: 'new',
+    source: 'Nautilus Sonar',
+    industry: 'PR',
+    service: 'PR',
+    status: 'Contacted',
     notes,
-    // quality, originalQuality, budget, budgetRaw, industry, contactNumber → NULL
+    // quality, originalQuality, budget, budgetRaw, contactNumber → NULL
   };
 
   const { error } = await supabase.from('leads').insert(row);
@@ -48,7 +49,7 @@ export async function mirrorArticleToSupabase(articleId: string): Promise<void> 
 
   // Unique-violation → update existing row by id (so re-sending doesn't dupe)
   if (error.code === '23505') {
-    const { error: updateError } = await supabase.from('leads').update(row).eq('id', article.id);
+    const { error: updateError } = await supabase.from('leads').update(row).eq('id', article.title);
     if (updateError) {
       console.error('[supabase-sync] update after 23505 failed:', updateError);
     }
