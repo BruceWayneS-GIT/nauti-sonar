@@ -106,6 +106,7 @@ export async function mirrorArticleToSalesLog(articleId: string): Promise<void> 
     phone: null,
     is_digital_prospector: false,
     is_upwork: false,
+    is_nauti_sonar: true,
   };
 
   const { error } = await supabase.from('sales_logs').insert(row);
