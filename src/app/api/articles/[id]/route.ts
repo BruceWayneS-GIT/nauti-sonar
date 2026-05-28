@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { mirrorArticleToSupabase } from '@/services/outreach/supabase-lead-sync';
+import { mirrorArticleToSupabase, mirrorArticleToSalesLog } from '@/services/outreach/supabase-lead-sync';
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -74,10 +74,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     },
   });
 
-  // Mirror to Supabase `leads` when an article newly transitions to SENT
+  // Mirror to both Supabase DBs when an article newly transitions to SENT
   if (body.status === 'SENT' && current.status !== 'SENT') {
     mirrorArticleToSupabase(id).catch((err) =>
       console.error('[supabase-sync] background sync failed:', err),
+    );
+    mirrorArticleToSalesLog(id).catch((err) =>
+      console.error('[cold-sync] background sync failed:', err),
     );
   }
 

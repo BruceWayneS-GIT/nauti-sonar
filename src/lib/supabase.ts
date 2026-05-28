@@ -1,11 +1,11 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 let cached: SupabaseClient | null = null;
+let cachedCold: SupabaseClient | null = null;
 
 /**
- * Returns a Supabase client for the external outreach DB, or null if
- * SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY aren't set (e.g., local dev).
- * Uses the service_role key — server-side only, do not import from client code.
+ * Supabase client for the leads DB (ckuxsozjfehuzomiojzy).
+ * Returns null if env vars aren't set — server-side only.
  */
 export function getSupabase(): SupabaseClient | null {
   if (cached) return cached;
@@ -14,4 +14,17 @@ export function getSupabase(): SupabaseClient | null {
   if (!url || !key) return null;
   cached = createClient(url, key, { auth: { persistSession: false } });
   return cached;
+}
+
+/**
+ * Supabase client for the cold outreach / sales logs DB (juqhewatlcpmzwcbiifc).
+ * Returns null if env vars aren't set — server-side only.
+ */
+export function getColdSupabase(): SupabaseClient | null {
+  if (cachedCold) return cachedCold;
+  const url = process.env.SUPABASE_COLD_URL;
+  const key = process.env.SUPABASE_COLD_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  cachedCold = createClient(url, key, { auth: { persistSession: false } });
+  return cachedCold;
 }
