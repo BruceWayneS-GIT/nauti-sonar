@@ -101,7 +101,7 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
 
       if (limitReached) {
         hitLimit = true;
-        await log(job.id, 'info', `Reached per-run limit of ${MAX_NEW_ARTICLES_PER_RUN} new articles. Run again to continue processing remaining articles.`);
+        await log(job.id, 'info', `Reached per-run limit of ${MAX_NEW_ARTICLES_PER_RUN} new articles. Auto-continuing...`);
       }
     }
 
@@ -129,6 +129,16 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
         errorCount: errors.length > 0 ? { increment: errors.length } : undefined,
       },
     });
+
+    // Auto-continue: if we hit the limit and saved new articles, kick off another run.
+    // Stops automatically when articlesSaved === 0 (all dupes) or when limit isn't hit (all done).
+    if (hitLimit && articlesSaved > 0) {
+      setTimeout(() => {
+        runCrawl(sourceId).catch((err) =>
+          console.error(`[crawl-engine] auto-continue run failed for source ${sourceId}:`, err),
+        );
+      }, 2000); // 2s pause between runs to be polite
+    }
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     errors.push(errorMsg);
