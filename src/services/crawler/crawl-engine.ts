@@ -12,9 +12,21 @@ export interface CrawlResult {
   errors: string[];
 }
 
+// Max new articles to process per crawl run. Large sources are processed
+// incrementally — re-runs skip already-saved articles via urlHash dedup
+// and pick up the next batch. Override via MAX_CRAWL_ARTICLES env var.
+const MAX_NEW_ARTICLES_PER_RUN = process.env.MAX_CRAWL_ARTICLES
+  ? parseInt(process.env.MAX_CRAWL_ARTICLES, 10)
+  : 200;
+
+// How often to checkpoint progress to the DB (in articles processed)
+const CHECKPOINT_EVERY = 25;
+
 /**
  * Run a crawl for a specific source. Creates a CrawlJob, runs the parser,
  * deduplicates, enriches metadata, and saves articles.
+ *
+ * Large sources are processed in capped runs — re-run to continue.
  */
 export async function runCrawl(sourceId: string): Promise<CrawlResult> {
   const source = await prisma.source.findUniqueOrThrow({
@@ -42,7 +54,13 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
     articlesFound = result.articles.length;
     errors.push(...result.errors);
 
-    await log(job.id, 'info', `Found ${articlesFound} article URLs`);
+    // Write articlesFound immediately so the UI shows progress even if we crash
+    await prisma.crawlJob.update({
+      where: { id: job.id },
+      data: { articlesFound },
+    });
+
+    await log(job.id, 'info', `Found ${articlesFound} article URLs — processing up to ${MAX_NEW_ARTICLES_PER_RUN} new articles this run`);
 
     if (result.errors.length > 0) {
       for (const err of result.errors) {
@@ -50,17 +68,46 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
       }
     }
 
-    // Process articles in batches
+    // Process articles in small batches, checkpoint progress regularly,
+    // and stop once we've saved MAX_NEW_ARTICLES_PER_RUN new articles.
     const batchSize = 10;
+    let processedSinceCheckpoint = 0;
+    let hitLimit = false;
+
     for (let i = 0; i < result.articles.length; i += batchSize) {
-      const batch = result.articles.slice(i, i + batchSize);
-      const savedCount = await processArticleBatch(batch, source.id, job.id);
-      articlesSaved += savedCount;
+      if (hitLimit) break;
+
+      const remaining = MAX_NEW_ARTICLES_PER_RUN - articlesSaved;
+      const batch = result.articles.slice(i, i + Math.min(batchSize, remaining));
+
+      const { saved, limitReached } = await processArticleBatch(
+        batch,
+        source.id,
+        job.id,
+        MAX_NEW_ARTICLES_PER_RUN - articlesSaved,
+      );
+
+      articlesSaved += saved;
+      processedSinceCheckpoint += saved;
+
+      // Checkpoint progress to DB every CHECKPOINT_EVERY new saves
+      if (processedSinceCheckpoint >= CHECKPOINT_EVERY) {
+        await prisma.crawlJob.update({
+          where: { id: job.id },
+          data: { articlesSaved },
+        });
+        processedSinceCheckpoint = 0;
+      }
+
+      if (limitReached) {
+        hitLimit = true;
+        await log(job.id, 'info', `Reached per-run limit of ${MAX_NEW_ARTICLES_PER_RUN} new articles. Run again to continue processing remaining articles.`);
+      }
     }
 
-    await log(job.id, 'info', `Saved ${articlesSaved} new articles (${articlesFound - articlesSaved} duplicates skipped)`);
+    await log(job.id, 'info', `Saved ${articlesSaved} new articles (${articlesFound - articlesSaved} duplicates skipped or pending next run)`);
 
-    // Update job
+    // Mark job complete
     await prisma.crawlJob.update({
       where: { id: job.id },
       data: {
@@ -110,11 +157,18 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
 async function processArticleBatch(
   articles: ParsedArticle[],
   sourceId: string,
-  jobId: string
-): Promise<number> {
+  jobId: string,
+  maxNew: number,
+): Promise<{ saved: number; limitReached: boolean }> {
   let saved = 0;
+  let limitReached = false;
 
   for (const article of articles) {
+    if (saved >= maxNew) {
+      limitReached = true;
+      break;
+    }
+
     try {
       const urlHash = hashUrl(article.url);
 
@@ -126,19 +180,19 @@ async function processArticleBatch(
 
       if (existing) continue;
 
-      // Try to enrich with metadata from the article page (limit to avoid overwhelming)
+      // Enrich with metadata from the article page
       let metadata = null;
       try {
         metadata = await extractArticleMetadata(article.url);
-        // Polite delay
-        await new Promise((r) => setTimeout(r, 300));
+        // Polite delay between requests
+        await new Promise((r) => setTimeout(r, 100));
       } catch {
         // metadata enrichment is best-effort
       }
 
       const companyUrls = metadata?.companyUrls || [];
 
-      // Scrape company websites for emails if we found any outbound website links
+      // Scrape company websites for emails if we found outbound website links
       let websiteEmails: string[] = [];
       if (companyUrls.length > 0) {
         try {
@@ -199,7 +253,7 @@ async function processArticleBatch(
     }
   }
 
-  return saved;
+  return { saved, limitReached };
 }
 
 async function log(jobId: string, level: string, message: string, metadata?: Record<string, string | number | boolean>) {

@@ -33,7 +33,7 @@ export async function extractArticleMetadata(url: string): Promise<ArticleMetada
         'User-Agent': 'Mozilla/5.0 (compatible; PROutreachBot/1.0)',
         'Accept': 'text/html,application/xhtml+xml',
       },
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(8000),
     });
 
     if (!response.ok) return null;
