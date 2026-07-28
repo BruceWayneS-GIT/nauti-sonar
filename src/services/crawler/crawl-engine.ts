@@ -132,12 +132,22 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
 
     // Auto-continue: if we hit the limit and saved new articles, kick off another run.
     // Stops automatically when articlesSaved === 0 (all dupes) or when limit isn't hit (all done).
+    // Waits until no other source is running to avoid overloading the server.
     if (hitLimit && articlesSaved > 0) {
-      setTimeout(() => {
+      const scheduleNextRun = async () => {
+        const runningCount = await prisma.crawlJob.count({
+          where: { status: 'RUNNING' },
+        });
+        if (runningCount > 0) {
+          // Another crawl is active — wait 30s and check again
+          setTimeout(scheduleNextRun, 30000);
+          return;
+        }
         runCrawl(sourceId).catch((err) =>
           console.error(`[crawl-engine] auto-continue run failed for source ${sourceId}:`, err),
         );
-      }, 2000); // 2s pause between runs to be polite
+      };
+      setTimeout(scheduleNextRun, 5000); // initial 5s pause after completing
     }
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
