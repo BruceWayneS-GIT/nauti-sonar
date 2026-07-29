@@ -15,6 +15,12 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Allow cron endpoints — these are called by Plesk Scheduled Tasks, which has
+  // no session cookie. They guard themselves with CRON_SECRET instead.
+  if (pathname.startsWith('/api/cron')) {
+    return NextResponse.next();
+  }
+
   // Check for session cookie
   const token = request.cookies.get(COOKIE_NAME)?.value;
   if (!token) {

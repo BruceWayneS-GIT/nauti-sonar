@@ -3,6 +3,7 @@ import { hashUrl, normalizeUrl } from '@/lib/utils';
 import { getParser } from '@/services/parsers';
 import { extractArticleMetadata } from './article-metadata';
 import { scrapeWebsiteEmails } from './website-email-scraper';
+import { getDueSources, isAnyCrawlRunning } from './source-scheduler';
 import type { ParsedArticle } from '@/services/parsers';
 
 export interface CrawlResult {
@@ -130,25 +131,12 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
       },
     });
 
-    // Auto-continue: if we hit the limit and saved new articles, kick off another run.
-    // Stops automatically when articlesSaved === 0 (all dupes) or when limit isn't hit (all done).
-    // Waits until no other source is running to avoid overloading the server.
-    if (hitLimit && articlesSaved > 0) {
-      const scheduleNextRun = async () => {
-        const runningCount = await prisma.crawlJob.count({
-          where: { status: 'RUNNING' },
-        });
-        if (runningCount > 0) {
-          // Another crawl is active — wait 30s and check again
-          setTimeout(scheduleNextRun, 30000);
-          return;
-        }
-        runCrawl(sourceId).catch((err) =>
-          console.error(`[crawl-engine] auto-continue run failed for source ${sourceId}:`, err),
-        );
-      };
-      setTimeout(scheduleNextRun, 5000); // initial 5s pause after completing
-    }
+    // Chain the next run:
+    //  - if this source hit the per-run cap and saved articles, continue this source
+    //  - otherwise this source is finished, so move on to the next due source
+    // Either way, wait until the server is idle first.
+    const continueSameSource = hitLimit && articlesSaved > 0;
+    scheduleNextCrawl(continueSameSource ? sourceId : null);
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     errors.push(errorMsg);
@@ -169,9 +157,60 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
       where: { id: sourceId },
       data: { status: 'ERROR' },
     });
+
+    // This source errored out — don't retry it, but keep the chain alive
+    // so the remaining due sources still get crawled.
+    scheduleNextCrawl(null);
   }
 
   return { jobId: job.id, articlesFound, articlesSaved, errors };
+}
+
+// Only ever one pending chain timer in this process.
+let chainPending = false;
+
+/**
+ * Schedule the next crawl once the server is idle.
+ *
+ * Pass a sourceId to continue that same source (it hit the per-run cap),
+ * or null to advance to the next most-overdue source.
+ *
+ * The chain ends naturally when no sources are due — each completed crawl
+ * sets lastCrawledAt, so a source drops out of the due list until its
+ * crawlFrequency elapses again.
+ */
+export function scheduleNextCrawl(sourceId: string | null): void {
+  if (chainPending) return;
+  chainPending = true;
+
+  const tick = async () => {
+    try {
+      if (await isAnyCrawlRunning()) {
+        setTimeout(tick, 30_000); // still busy — check again in 30s
+        return;
+      }
+
+      let nextId = sourceId;
+      if (!nextId) {
+        const due = await getDueSources();
+        if (due.length === 0) {
+          chainPending = false;
+          return; // nothing left to crawl
+        }
+        nextId = due[0].id;
+      }
+
+      chainPending = false;
+      runCrawl(nextId).catch((err) =>
+        console.error(`[crawl-engine] chained run failed for source ${nextId}:`, err),
+      );
+    } catch (err) {
+      chainPending = false;
+      console.error('[crawl-engine] scheduleNextCrawl failed:', err);
+    }
+  };
+
+  setTimeout(tick, 5_000);
 }
 
 async function processArticleBatch(

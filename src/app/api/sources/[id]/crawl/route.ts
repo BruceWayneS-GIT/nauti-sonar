@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runCrawl } from '@/services/crawler/crawl-engine';
+import { cleanupStuckJobs } from '@/services/crawler/source-scheduler';
 import prisma from '@/lib/db';
 
 export const maxDuration = 300;
@@ -7,6 +8,10 @@ export const maxDuration = 300;
 export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   try {
+    // Clear crashed jobs first, otherwise a stuck RUNNING row blocks this
+    // source from ever being crawled again.
+    await cleanupStuckJobs();
+
     const existing = await prisma.crawlJob.findFirst({
       where: { sourceId: id, status: 'RUNNING' },
       select: { id: true },
