@@ -157,6 +157,7 @@ model Article {
   contactFindings ContactFinding[]
   contactRuns     ContactDiscoveryRun[]
   outreachItems   OutreachItem[]
+  linkedinClaims  ArticleLinkedin[]
 
   @@index([sourceId])
   @@index([status])
@@ -207,6 +208,21 @@ model ArticleStatusHistory {
 
   @@index([articleId])
   @@map("article_status_history")
+}
+
+/// Claims a normalized LinkedIn profile/company URL for one article.
+/// The unique index makes "have we already seen this person?" an indexed
+/// point lookup instead of a scan over the linkedinUrls JSON column.
+model ArticleLinkedin {
+  id           String   @id @default(cuid())
+  articleId    String
+  linkedinUrl  String   @unique @db.VarChar(255)
+  createdAt    DateTime @default(now())
+
+  article      Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([articleId])
+  @@map("article_linkedin")
 }
 
 // ─── Contact Discovery ──────────────────────────────────────────────────────

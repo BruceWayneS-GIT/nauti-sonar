@@ -1,5 +1,5 @@
 import prisma from '@/lib/db';
-import { hashUrl } from '@/lib/utils';
+import { hashUrl, normalizeLinkedinUrl } from '@/lib/utils';
 import { getParser } from '@/services/parsers';
 import { extractArticleMetadata } from './article-metadata';
 import { scrapeWebsiteEmails } from './website-email-scraper';
@@ -269,6 +269,26 @@ async function processArticleBatch(
       const twitterUrls = metadata?.twitterUrls || [];
       const hasAnyLead = mergedEmails.length > 0 || linkedinUrls.length > 0 || twitterUrls.length > 0 || companyUrls.length > 0;
 
+      // Has any of these LinkedIn profiles already been captured elsewhere?
+      // Indexed point lookup against the claims table.
+      const linkedinKeys = [
+        ...new Set(linkedinUrls.map(normalizeLinkedinUrl).filter((k): k is string => k !== null)),
+      ];
+
+      let duplicateOf: { articleId: string; linkedinUrl: string } | null = null;
+      if (linkedinKeys.length > 0) {
+        duplicateOf = await prisma.articleLinkedin.findFirst({
+          where: { linkedinUrl: { in: linkedinKeys } },
+          select: { articleId: true, linkedinUrl: true },
+        });
+      }
+
+      const archiveNote = duplicateOf
+        ? `Duplicate lead: ${duplicateOf.linkedinUrl} already captured on article ${duplicateOf.articleId}`
+        : !hasAnyLead
+          ? 'No leads found'
+          : null;
+
       const newArticle = await prisma.article.create({
         data: {
           sourceId,
@@ -281,8 +301,8 @@ async function processArticleBatch(
           publishedAt: metadata?.publishedAt || article.publishedAt || null,
           category: metadata?.category || article.category || null,
           tags: metadata?.tags || article.tags || [],
-          status: hasAnyLead ? 'NEW' : 'ARCHIVED',
-          internalNotes: hasAnyLead ? null : 'No leads found',
+          status: hasAnyLead && !duplicateOf ? 'NEW' : 'ARCHIVED',
+          internalNotes: archiveNote,
           scrapedEmails: mergedEmails,
           outboundLinks: metadata?.outboundLinks ? JSON.parse(JSON.stringify(metadata.outboundLinks)) : undefined,
           linkedinUrls,
@@ -293,14 +313,23 @@ async function processArticleBatch(
         },
       });
 
+      // Claim these LinkedIn profiles so later articles see them as duplicates.
+      // A duplicate never claims anything — the original keeps ownership.
+      if (!duplicateOf && linkedinKeys.length > 0) {
+        await prisma.articleLinkedin.createMany({
+          data: linkedinKeys.map((linkedinUrl) => ({ articleId: newArticle.id, linkedinUrl })),
+          skipDuplicates: true,
+        });
+      }
+
       // Log status history for auto-archived articles
-      if (!hasAnyLead) {
+      if (!hasAnyLead || duplicateOf) {
         await prisma.articleStatusHistory.create({
           data: {
             articleId: newArticle.id,
             fromStatus: 'NEW',
             toStatus: 'ARCHIVED',
-            note: 'Auto-archived: No leads found',
+            note: `Auto-archived: ${archiveNote}`,
           },
         });
       }

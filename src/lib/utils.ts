@@ -42,6 +42,31 @@ export function normalizeUrl(url: string): string {
   }
 }
 
+/**
+ * Reduce a LinkedIn URL to a stable identity key, e.g.
+ *   https://www.linkedin.com/in/Jane-Doe-123/?trk=abc  ->  linkedin.com/in/jane-doe-123
+ *   https://uk.linkedin.com/company/Acme               ->  linkedin.com/company/acme
+ *
+ * Only profile (/in/) and company (/company/) URLs get a key — a shared link
+ * to a post or feed identifies no one, so it must never trigger dedup.
+ * Returns null for anything else.
+ */
+export function normalizeLinkedinUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (!/(^|\.)linkedin\.com$/.test(u.hostname.toLowerCase())) return null;
+
+    // Drop any subdomain (www., uk., etc) — same profile either way
+    const path = u.pathname.toLowerCase().replace(/\/+$/, '');
+    const match = path.match(/^\/(in|company)\/([^/]+)/);
+    if (!match) return null;
+
+    return `linkedin.com/${match[1]}/${match[2]}`.slice(0, 255);
+  } catch {
+    return null;
+  }
+}
+
 /** Create a hash of a normalized URL for fast dedup lookups */
 export function hashUrl(url: string): string {
   const normalized = normalizeUrl(url);
