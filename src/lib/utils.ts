@@ -6,16 +6,31 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** Normalize a URL for deduplication: lowercase host, remove trailing slash, strip fragments and tracking params */
+/**
+ * Normalize a URL for deduplication.
+ *
+ * Collapses the variants that otherwise produce different hashes for what is
+ * really the same page: protocol, `www.` prefix, host casing, trailing slash,
+ * fragments, tracking params, and query-parameter order.
+ */
 export function normalizeUrl(url: string): string {
   try {
     const u = new URL(url);
     u.hash = '';
+
     // Remove common tracking params
     const trackingParams = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', 'ref'];
     trackingParams.forEach((p) => u.searchParams.delete(p));
-    // Lowercase host
-    u.hostname = u.hostname.toLowerCase();
+
+    // Sort remaining params so ?a=1&b=2 and ?b=2&a=1 hash identically
+    u.searchParams.sort();
+
+    // http and https serve the same article — treat them as one
+    u.protocol = 'https:';
+
+    // Lowercase host and drop the www. prefix
+    u.hostname = u.hostname.toLowerCase().replace(/^www\./, '');
+
     // Remove trailing slash
     let normalized = u.toString();
     if (normalized.endsWith('/')) {

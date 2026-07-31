@@ -1,5 +1,5 @@
 import prisma from '@/lib/db';
-import { hashUrl, normalizeUrl } from '@/lib/utils';
+import { hashUrl } from '@/lib/utils';
 import { getParser } from '@/services/parsers';
 import { extractArticleMetadata } from './article-metadata';
 import { scrapeWebsiteEmails } from './website-email-scraper';
