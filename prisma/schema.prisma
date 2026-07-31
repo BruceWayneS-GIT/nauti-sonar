@@ -217,11 +217,18 @@ model ArticleLinkedin {
   id           String   @id @default(cuid())
   articleId    String
   linkedinUrl  String   @unique @db.VarChar(255)
+  /// How many articles this profile has been seen on.
+  seenCount    Int      @default(1)
+  /// True for publisher/sitewide profiles (a footer or nav LinkedIn that
+  /// appears on thousands of articles). These identify no lead, so they
+  /// must never trigger duplicate archiving.
+  ignored      Boolean  @default(false)
   createdAt    DateTime @default(now())
 
   article      Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
 
   @@index([articleId])
+  @@index([ignored])
   @@map("article_linkedin")
 }
 

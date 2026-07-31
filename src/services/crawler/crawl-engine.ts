@@ -23,6 +23,13 @@ const MAX_NEW_ARTICLES_PER_RUN = process.env.MAX_CRAWL_ARTICLES
 // How often to checkpoint progress to the DB (in articles processed)
 const CHECKPOINT_EVERY = 25;
 
+// A LinkedIn profile seen on more articles than this is a publisher/sitewide
+// link (a footer or nav LinkedIn), not a lead. Real leads in the data top out
+// around 15 articles; publisher pages reach into the thousands.
+const SITEWIDE_LINKEDIN_THRESHOLD = process.env.SITEWIDE_LINKEDIN_THRESHOLD
+  ? parseInt(process.env.SITEWIDE_LINKEDIN_THRESHOLD, 10)
+  : 50;
+
 /**
  * Run a crawl for a specific source. Creates a CrawlJob, runs the parser,
  * deduplicates, enriches metadata, and saves articles.
@@ -275,11 +282,25 @@ async function processArticleBatch(
         ...new Set(linkedinUrls.map(normalizeLinkedinUrl).filter((k): k is string => k !== null)),
       ];
 
+      // Profiles flagged `ignored` are publisher/sitewide links (e.g. the
+      // LinkedIn in a site footer, which appears on every article) — they
+      // identify no lead, so they never count as a duplicate.
       let duplicateOf: { articleId: string; linkedinUrl: string } | null = null;
       if (linkedinKeys.length > 0) {
         duplicateOf = await prisma.articleLinkedin.findFirst({
-          where: { linkedinUrl: { in: linkedinKeys } },
+          where: { linkedinUrl: { in: linkedinKeys }, ignored: false },
           select: { articleId: true, linkedinUrl: true },
+        });
+
+        // Count every sighting, and retire a profile once it turns out to be
+        // sitewide rather than a real lead.
+        await prisma.articleLinkedin.updateMany({
+          where: { linkedinUrl: { in: linkedinKeys } },
+          data: { seenCount: { increment: 1 } },
+        });
+        await prisma.articleLinkedin.updateMany({
+          where: { linkedinUrl: { in: linkedinKeys }, seenCount: { gte: SITEWIDE_LINKEDIN_THRESHOLD } },
+          data: { ignored: true },
         });
       }
 
