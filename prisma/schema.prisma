@@ -114,6 +114,9 @@ model Article {
   canonicalUrl    String?           @db.Text
   urlHash         String            @unique @db.VarChar(64)
   title           String            @db.Text
+  /// Normalized headline, used to spot the same story served under several
+  /// slugs by one publication. Indexed with sourceId for the dedup lookup.
+  titleKey        String?           @db.VarChar(255)
   excerpt         String?           @db.Text
   author          String?
   publishedAt     DateTime?
@@ -164,6 +167,7 @@ model Article {
   @@index([ownerId])
   @@index([publishedAt])
   @@index([contactConfidence])
+  @@index([sourceId, titleKey])
   @@map("articles")
 }
 

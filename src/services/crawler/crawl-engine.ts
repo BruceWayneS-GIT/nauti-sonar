@@ -1,5 +1,6 @@
 import prisma from '@/lib/db';
 import { hashUrl, normalizeLinkedinUrl } from '@/lib/utils';
+import { titleKey } from '@/lib/dedupe';
 import { getParser } from '@/services/parsers';
 import { extractArticleMetadata } from './article-metadata';
 import { scrapeWebsiteEmails } from './website-email-scraper';
@@ -304,11 +305,27 @@ async function processArticleBatch(
         });
       }
 
+      // Same headline from the same publication = the same story served under
+      // another slug. Only matched within a source, so two outlets covering the
+      // same news under an identical headline are both kept.
+      const resolvedTitle = metadata?.title || article.title;
+      const key = titleKey(resolvedTitle);
+      const sameTitleArticle = key
+        ? await prisma.article.findFirst({
+            where: { sourceId, titleKey: key },
+            select: { id: true },
+          })
+        : null;
+
       const archiveNote = duplicateOf
         ? `Duplicate lead: ${duplicateOf.linkedinUrl} already captured on article ${duplicateOf.articleId}`
-        : !hasAnyLead
-          ? 'No leads found'
-          : null;
+        : sameTitleArticle
+          ? `Duplicate story: same headline already captured on article ${sameTitleArticle.id}`
+          : !hasAnyLead
+            ? 'No leads found'
+            : null;
+
+      const isDuplicate = Boolean(duplicateOf || sameTitleArticle);
 
       const newArticle = await prisma.article.create({
         data: {
@@ -316,13 +333,14 @@ async function processArticleBatch(
           url: article.url,
           canonicalUrl: metadata?.canonicalUrl || article.canonicalUrl || null,
           urlHash,
-          title: metadata?.title || article.title,
+          title: resolvedTitle,
+          titleKey: key || null,
           excerpt: metadata?.excerpt || article.excerpt || null,
           author: metadata?.author || article.author || null,
           publishedAt: metadata?.publishedAt || article.publishedAt || null,
           category: metadata?.category || article.category || null,
           tags: metadata?.tags || article.tags || [],
-          status: hasAnyLead && !duplicateOf ? 'NEW' : 'ARCHIVED',
+          status: hasAnyLead && !isDuplicate ? 'NEW' : 'ARCHIVED',
           internalNotes: archiveNote,
           scrapedEmails: mergedEmails,
           outboundLinks: metadata?.outboundLinks ? JSON.parse(JSON.stringify(metadata.outboundLinks)) : undefined,
@@ -336,7 +354,7 @@ async function processArticleBatch(
 
       // Claim these LinkedIn profiles so later articles see them as duplicates.
       // A duplicate never claims anything — the original keeps ownership.
-      if (!duplicateOf && linkedinKeys.length > 0) {
+      if (!isDuplicate && linkedinKeys.length > 0) {
         await prisma.articleLinkedin.createMany({
           data: linkedinKeys.map((linkedinUrl) => ({ articleId: newArticle.id, linkedinUrl })),
           skipDuplicates: true,
@@ -344,7 +362,7 @@ async function processArticleBatch(
       }
 
       // Log status history for auto-archived articles
-      if (!hasAnyLead || duplicateOf) {
+      if (!hasAnyLead || isDuplicate) {
         await prisma.articleStatusHistory.create({
           data: {
             articleId: newArticle.id,

@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { normalizeUrl, normalizeLinkedinUrl } from '@/lib/utils';
+import { titleKey } from '@/lib/dedupe';
 
 export const maxDuration = 300;
-
-/** Loose title key: lowercase, strip punctuation, collapse whitespace. */
-function titleKey(title: string): string {
-  return title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-}
 
 type Group = { key: string; count: number; examples: { title: string; url: string; source: string }[] };
 
