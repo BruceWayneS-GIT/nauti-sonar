@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Search, Filter, Download, MoreHorizontal, ExternalLink,
   Mail, Link2, ChevronLeft, ChevronRight, FileText, Globe,
@@ -68,7 +68,18 @@ function ArticlesPageContent() {
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
+  // Debounced copy of the search box — typing shouldn't fire a request per keystroke.
+  const [appliedSearch, setAppliedSearch] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setAppliedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Ignore responses from requests that a newer one has already superseded.
+  const requestSeq = useRef(0);
+
   const fetchArticles = useCallback(async (page = 1) => {
+    const seq = ++requestSeq.current;
     setLoading(true);
     const params = new URLSearchParams({
       page: String(page),
@@ -76,25 +87,36 @@ function ArticlesPageContent() {
       sortBy,
       sortOrder,
     });
-    if (search) params.set('search', search);
+    if (appliedSearch) params.set('search', appliedSearch);
     if (filterSource) params.set('source', filterSource);
     if (filterStatus) params.set('status', filterStatus);
     if (filterHasEmail) params.set('hasEmail', filterHasEmail);
     if (filterConfidence) params.set('confidence', filterConfidence);
     if (filterLeads) params.set('leads', filterLeads);
 
-    const res = await fetch(`/api/articles?${params}`);
-    const data = await res.json();
-    setArticles(data.articles);
-    setPagination(data.pagination);
-    setLoading(false);
-  }, [search, filterSource, filterStatus, filterHasEmail, filterConfidence, filterLeads, sortBy, sortOrder]);
+    try {
+      const res = await fetch(`/api/articles?${params}`);
+      const data = await res.json();
+      if (seq !== requestSeq.current) return; // superseded — discard
+      setArticles(data.articles);
+      setPagination(data.pagination);
+    } finally {
+      if (seq === requestSeq.current) setLoading(false);
+    }
+  }, [appliedSearch, filterSource, filterStatus, filterHasEmail, filterConfidence, filterLeads, sortBy, sortOrder]);
 
+  // Changing a filter refetches through this effect. Filter handlers must NOT
+  // call fetchArticles themselves: state updates are async, so they'd run with
+  // the previous filter value and race the correct request started here.
   useEffect(() => {
     fetchArticles();
+  }, [fetchArticles]);
+
+  // Reference data only needs loading once, not on every filter change.
+  useEffect(() => {
     fetch('/api/sources').then((r) => r.json()).then((data) => setSources(data.map((s: Source & { _count?: unknown }) => ({ id: s.id, name: s.name }))));
     fetch('/api/users').then((r) => r.json()).then(setUsers);
-  }, [fetchArticles]);
+  }, []);
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -255,11 +277,11 @@ function ArticlesPageContent() {
             className="pl-9"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && fetchArticles(1)}
+            onKeyDown={(e) => e.key === 'Enter' && setAppliedSearch(search)}
           />
         </div>
 
-        <Select value={filterSource} onValueChange={(v) => { setFilterSource(v === 'all' ? '' : v); fetchArticles(1); }}>
+        <Select value={filterSource} onValueChange={(v) => setFilterSource(v === 'all' ? '' : v)}>
           <SelectTrigger className="w-[160px]"><SelectValue placeholder="All Sources" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Sources</SelectItem>
@@ -267,7 +289,7 @@ function ArticlesPageContent() {
           </SelectContent>
         </Select>
 
-        <Select value={filterStatus} onValueChange={(v) => { setFilterStatus(v === 'all' ? '' : v); fetchArticles(1); }}>
+        <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v === 'all' ? '' : v)}>
           <SelectTrigger className="w-[140px]"><SelectValue placeholder="All Statuses" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Statuses</SelectItem>
@@ -275,7 +297,7 @@ function ArticlesPageContent() {
           </SelectContent>
         </Select>
 
-        <Select value={filterHasEmail} onValueChange={(v) => { setFilterHasEmail(v === 'all' ? '' : v); fetchArticles(1); }}>
+        <Select value={filterHasEmail} onValueChange={(v) => setFilterHasEmail(v === 'all' ? '' : v)}>
           <SelectTrigger className="w-[150px]"><SelectValue placeholder="Email Filter" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All</SelectItem>
@@ -284,7 +306,7 @@ function ArticlesPageContent() {
           </SelectContent>
         </Select>
 
-        <Select value={filterConfidence} onValueChange={(v) => { setFilterConfidence(v === 'all' ? '' : v); fetchArticles(1); }}>
+        <Select value={filterConfidence} onValueChange={(v) => setFilterConfidence(v === 'all' ? '' : v)}>
           <SelectTrigger className="w-[150px]"><SelectValue placeholder="Confidence" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Confidence</SelectItem>
@@ -296,7 +318,7 @@ function ArticlesPageContent() {
           </SelectContent>
         </Select>
 
-        <Select value={filterLeads} onValueChange={(v) => { setFilterLeads(v === 'all' ? '' : v); fetchArticles(1); }}>
+        <Select value={filterLeads} onValueChange={(v) => setFilterLeads(v === 'all' ? '' : v)}>
           <SelectTrigger className="w-[160px]"><SelectValue placeholder="Leads & Links" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Articles</SelectItem>
@@ -311,7 +333,7 @@ function ArticlesPageContent() {
         </Select>
 
         {(search || filterSource || filterStatus || filterHasEmail || filterConfidence || filterLeads) && (
-          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setFilterSource(''); setFilterStatus(''); setFilterHasEmail(''); setFilterConfidence(''); setFilterLeads(''); fetchArticles(1); }}>
+          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setAppliedSearch(''); setFilterSource(''); setFilterStatus(''); setFilterHasEmail(''); setFilterConfidence(''); setFilterLeads(''); }}>
             <Filter className="h-3 w-3 mr-1" /> Clear
           </Button>
         )}
