@@ -25,15 +25,28 @@ export interface KeeperCandidate {
 }
 
 /**
+ * Rank a candidate: worked-on beats live, live beats already-archived.
+ *
+ * The archived tier matters. Without it an older archived copy outranks a
+ * newer live one, becomes the keeper, and every active article gets archived
+ * around it — leaving the lead with nothing in the pipeline at all.
+ */
+function statusRank(status: string): number {
+  if (ACTIONED.has(status)) return 2;
+  if (status === 'ARCHIVED') return 0;
+  return 1;
+}
+
+/**
  * Of a set of duplicates, decide which to keep: actioned articles win, then
- * ones carrying a contact email, then the oldest. Ensures outreach work is
- * never discarded in favour of an untouched row.
+ * live ones over archived, then ones carrying a contact email, then the
+ * oldest. Ensures outreach work is never discarded in favour of an untouched
+ * row, and that a group always keeps something visible.
  */
 export function pickKeeper<T extends KeeperCandidate>(rows: T[]): T {
   return [...rows].sort((a, b) => {
-    const aActioned = ACTIONED.has(a.status) ? 1 : 0;
-    const bActioned = ACTIONED.has(b.status) ? 1 : 0;
-    if (aActioned !== bActioned) return bActioned - aActioned;
+    const rank = statusRank(b.status) - statusRank(a.status);
+    if (rank !== 0) return rank;
 
     const aEmail = a.contactEmail ? 1 : 0;
     const bEmail = b.contactEmail ? 1 : 0;
