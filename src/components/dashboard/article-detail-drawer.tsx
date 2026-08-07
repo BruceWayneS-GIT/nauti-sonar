@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { StatusBadge, ConfidenceBadge } from '@/components/shared/status-badge';
 import { Skeleton } from '@/components/shared/loading';
 import { ARTICLE_STATUSES } from '@/lib/constants';
-import { formatDate, timeAgo } from '@/lib/utils';
+import { formatDate, timeAgo, isLinkedinProfileUrl } from '@/lib/utils';
 
 interface Props {
   articleId: string;
@@ -103,6 +103,10 @@ export function ArticleDetailDrawer({ articleId, onClose, onUpdate, users }: Pro
     setDiscovering(false);
     onUpdate();
   };
+
+  // Show only real person/company pages — share widgets and feed links are
+  // not leads. Older articles were crawled before these were filtered out.
+  const linkedinProfiles = (article?.linkedinUrls ?? []).filter(isLinkedinProfileUrl);
 
   return (
     <div className="fixed inset-y-0 right-0 z-50 w-[520px] border-l bg-card shadow-xl flex flex-col">
@@ -282,13 +286,13 @@ export function ArticleDetailDrawer({ articleId, onClose, onUpdate, users }: Pro
                 )}
 
                 {/* LinkedIn URLs */}
-                {article.linkedinUrls?.length > 0 && (
+                {linkedinProfiles.length > 0 && (
                   <div>
                     <h5 className="text-xs font-semibold text-muted-foreground uppercase mb-2 flex items-center gap-1.5">
-                      <Users className="h-3 w-3" /> LinkedIn ({article.linkedinUrls.length})
+                      <Users className="h-3 w-3" /> LinkedIn ({linkedinProfiles.length})
                     </h5>
                     <div className="space-y-1">
-                      {article.linkedinUrls.map((url) => (
+                      {linkedinProfiles.map((url) => (
                         <a
                           key={url}
                           href={url}
@@ -358,7 +362,7 @@ export function ArticleDetailDrawer({ articleId, onClose, onUpdate, users }: Pro
                 )}
 
                 {/* Empty state */}
-                {(!article.scrapedEmails?.length && !article.websiteEmails?.length && !article.linkedinUrls?.length && !article.twitterUrls?.length && !article.companyUrls?.length) && (
+                {(!article.scrapedEmails?.length && !article.websiteEmails?.length && !linkedinProfiles.length && !article.twitterUrls?.length && !article.companyUrls?.length) && (
                   <p className="text-sm text-muted-foreground text-center py-6">
                     No outbound links or emails scraped yet. Re-crawl this article to extract links.
                   </p>

@@ -51,6 +51,14 @@ export function normalizeUrl(url: string): string {
  * to a post or feed identifies no one, so it must never trigger dedup.
  * Returns null for anything else.
  */
+/**
+ * True only for LinkedIn person (/in/) or company (/company/) pages.
+ * Share buttons, feed posts and login links all return false.
+ */
+export function isLinkedinProfileUrl(url: string): boolean {
+  return normalizeLinkedinUrl(url) !== null;
+}
+
 export function normalizeLinkedinUrl(url: string): string | null {
   try {
     const u = new URL(url);

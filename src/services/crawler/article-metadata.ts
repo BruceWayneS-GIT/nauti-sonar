@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import { extractEmails } from '@/lib/utils';
+import { extractEmails, isLinkedinProfileUrl } from '@/lib/utils';
 
 export interface OutboundLink {
   url: string;
@@ -182,9 +182,11 @@ export async function extractArticleMetadata(url: string): Promise<ArticleMetada
 
       outboundLinks.push({ url: fullUrl, text: linkText, type: linkType });
 
-      // Categorize into specific arrays
+      // Categorize into specific arrays.
+      // Only person (/in/) and company (/company/) pages count as a LinkedIn
+      // lead — share widgets, feed posts and login links identify nobody.
       if (linkType === 'linkedin') {
-        linkedinUrls.push(fullUrl);
+        if (isLinkedinProfileUrl(fullUrl)) linkedinUrls.push(fullUrl);
       } else if (linkType === 'twitter') {
         twitterUrls.push(fullUrl);
       } else if (linkType === 'website') {
@@ -271,13 +273,17 @@ function isAggregatorDomain(hostname: string): boolean {
 function isShareIntent(url: string): boolean {
   const patterns = [
     '/intent/tweet', '/share?', '/sharer/', '/sharer.php',
+    // LinkedIn's share widgets — these are buttons, not anyone's profile
+    '/sharearticle', '/sharing/share-offsite', 'linkedin.com/cws/share',
     'api.whatsapp.com', 'wa.me/',
     'telegram.me/share', 't.me/share',
     'reddit.com/submit', 'news.ycombinator.com/submitlink',
     'pinterest.com/pin/create',
     'buffer.com/add',
   ];
-  return patterns.some((p) => url.includes(p));
+  // Lowercased: real-world share URLs vary in casing (e.g. LinkedIn's shareArticle)
+  const lower = url.toLowerCase();
+  return patterns.some((p) => lower.includes(p));
 }
 
 function extractAuthorFromJsonLd($: cheerio.CheerioAPI): string | undefined {
