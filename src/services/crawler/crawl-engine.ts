@@ -77,17 +77,44 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
       }
     }
 
-    // Process articles in small batches, checkpoint progress regularly,
-    // and stop once we've saved MAX_NEW_ARTICLES_PER_RUN new articles.
+    // Discard already-saved articles up front with a handful of bulk queries.
+    // Doing this per-article meant a source whose articles were all already
+    // saved still made one round-trip per URL — 11k sequential queries that
+    // saved nothing and kept the process alive long enough to be recycled.
+    const hashed = result.articles.map((a) => ({ article: a, urlHash: hashUrl(a.url) }));
+    const knownHashes = new Set<string>();
+    const LOOKUP_CHUNK = 1000;
+
+    for (let i = 0; i < hashed.length; i += LOOKUP_CHUNK) {
+      const chunk = hashed.slice(i, i + LOOKUP_CHUNK);
+      const found = await prisma.article.findMany({
+        where: { urlHash: { in: chunk.map((h) => h.urlHash) } },
+        select: { urlHash: true },
+      });
+      for (const f of found) knownHashes.add(f.urlHash);
+    }
+
+    const newArticles = hashed.filter((h) => !knownHashes.has(h.urlHash));
+
+    await log(
+      job.id,
+      'info',
+      `${knownHashes.size} already saved, ${newArticles.length} new to process`,
+    );
+
+    // Nothing new — finish immediately rather than churning through the list.
+    // Process the new ones in small batches, checkpointing as we go.
     const batchSize = 10;
     let processedSinceCheckpoint = 0;
     let hitLimit = false;
 
-    for (let i = 0; i < result.articles.length; i += batchSize) {
+    for (let i = 0; i < newArticles.length; i += batchSize) {
       if (hitLimit) break;
 
       const remaining = MAX_NEW_ARTICLES_PER_RUN - articlesSaved;
-      const batch = result.articles.slice(i, i + Math.min(batchSize, remaining));
+      const batch = newArticles
+        .slice(i, i + Math.min(batchSize, remaining))
+        .map((h) => h.article);
 
       const { saved, limitReached } = await processArticleBatch(
         batch,
@@ -114,7 +141,11 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
       }
     }
 
-    await log(job.id, 'info', `Saved ${articlesSaved} new articles (${articlesFound - articlesSaved} duplicates skipped or pending next run)`);
+    await log(
+      job.id,
+      'info',
+      `Saved ${articlesSaved} new articles (${knownHashes.size} already saved, ${Math.max(0, newArticles.length - articlesSaved)} pending next run)`,
+    );
 
     // Mark job complete
     await prisma.crawlJob.update({

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
+import { cleanupStuckJobs } from '@/services/crawler/source-scheduler';
 
 export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams;
@@ -9,6 +10,10 @@ export async function GET(request: NextRequest) {
   const level = sp.get('level') || '';
 
   if (type === 'crawl') {
+    // Sweep jobs whose process died before viewing, otherwise they show as
+    // RUNNING until the next daily cron happens to call this.
+    await cleanupStuckJobs();
+
     const jobs = await prisma.crawlJob.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
