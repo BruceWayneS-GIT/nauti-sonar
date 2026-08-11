@@ -24,6 +24,14 @@ const MAX_NEW_ARTICLES_PER_RUN = process.env.MAX_CRAWL_ARTICLES
 // How often to checkpoint progress to the DB (in articles processed)
 const CHECKPOINT_EVERY = 25;
 
+// Wall-clock budget for a single run. A crawl that overruns stops cleanly,
+// marks itself COMPLETED and lets the chain continue, rather than running for
+// hours until its process is recycled and it is swept as a stuck job.
+// Remaining articles are picked up by the next run.
+const MAX_RUN_MS = process.env.MAX_CRAWL_RUN_SECONDS
+  ? parseInt(process.env.MAX_CRAWL_RUN_SECONDS, 10) * 1000
+  : 10 * 60 * 1000;
+
 // A LinkedIn profile seen on more articles than this is a publisher/sitewide
 // link (a footer or nav LinkedIn), not a lead. Real leads in the data top out
 // around 15 articles; publisher pages reach into the thousands.
@@ -107,9 +115,21 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
     const batchSize = 10;
     let processedSinceCheckpoint = 0;
     let hitLimit = false;
+    let outOfTime = false;
+    const deadline = Date.now() + MAX_RUN_MS;
 
     for (let i = 0; i < newArticles.length; i += batchSize) {
       if (hitLimit) break;
+
+      if (Date.now() > deadline) {
+        outOfTime = true;
+        await log(
+          job.id,
+          'warn',
+          `Run budget of ${Math.round(MAX_RUN_MS / 1000)}s reached after ${articlesSaved} articles — stopping cleanly, the rest continue next run`,
+        );
+        break;
+      }
 
       const remaining = MAX_NEW_ARTICLES_PER_RUN - articlesSaved;
       const batch = newArticles
@@ -174,7 +194,10 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
     //  - if this source hit the per-run cap and saved articles, continue this source
     //  - otherwise this source is finished, so move on to the next due source
     // Either way, wait until the server is idle first.
-    const continueSameSource = hitLimit && articlesSaved > 0;
+    // Carry on with this source if it still has work and made progress.
+    // Having saved nothing within the budget means something is slow here, so
+    // move on rather than let one source monopolise the chain.
+    const continueSameSource = (hitLimit || outOfTime) && articlesSaved > 0;
     scheduleNextCrawl(continueSameSource ? sourceId : null);
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);

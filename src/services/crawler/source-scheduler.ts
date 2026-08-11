@@ -7,13 +7,19 @@ export interface DueSource {
 }
 
 /**
- * Returns ACTIVE sources that are due for a crawl, most overdue first.
+ * Returns sources that are due for a crawl, most overdue first.
  * A source is due when (lastCrawledAt + crawlFrequency) is in the past.
  * Never-crawled sources are treated as maximally overdue.
+ *
+ * ERROR sources are included: a single bad crawl (a blocked request, a
+ * temporarily bad sitemap) marks a source ERROR, and excluding those meant
+ * one failure dropped a source from the schedule permanently. A genuinely
+ * broken source just fails fast again and costs nothing. Only PAUSED is
+ * excluded, since that is a deliberate choice by the user.
  */
 export async function getDueSources(): Promise<DueSource[]> {
   const sources = await prisma.source.findMany({
-    where: { status: 'ACTIVE' },
+    where: { status: { in: ['ACTIVE', 'ERROR'] } },
     select: { id: true, name: true, crawlFrequency: true, lastCrawledAt: true },
   });
 
