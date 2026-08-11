@@ -22,7 +22,15 @@ const MAX_NEW_ARTICLES_PER_RUN = process.env.MAX_CRAWL_ARTICLES
   : 200;
 
 // How often to checkpoint progress to the DB (in articles processed)
-const CHECKPOINT_EVERY = 25;
+// Kept low: articlesSaved is invisible until a checkpoint lands, so a run
+// whose process dies before the first one reports 0 despite doing real work.
+const CHECKPOINT_EVERY = 5;
+
+// Scraping company websites for emails costs up to ~48s per article (3 domains
+// x 3 pages x 5s). Doing it inline made crawls so slow they rarely survived.
+// The Articles page has a dedicated "Scrape Websites" action for this, so it is
+// off by default here; set SCRAPE_WEBSITES_DURING_CRAWL=true to restore it.
+const SCRAPE_WEBSITES_DURING_CRAWL = process.env.SCRAPE_WEBSITES_DURING_CRAWL === 'true';
 
 // Wall-clock budget for a single run. A crawl that overruns stops cleanly,
 // marks itself COMPLETED and lets the chain continue, rather than running for
@@ -323,9 +331,10 @@ async function processArticleBatch(
 
       const companyUrls = metadata?.companyUrls || [];
 
-      // Scrape company websites for emails if we found outbound website links
+      // Scrape company websites for emails if we found outbound website links.
+      // Deferred by default — run "Scrape Websites" from the Articles page.
       let websiteEmails: string[] = [];
-      if (companyUrls.length > 0) {
+      if (SCRAPE_WEBSITES_DURING_CRAWL && companyUrls.length > 0) {
         try {
           websiteEmails = await scrapeWebsiteEmails(companyUrls);
         } catch {
@@ -412,7 +421,11 @@ async function processArticleBatch(
           twitterUrls,
           companyUrls,
           websiteEmails,
-          websiteEmailsScrapedAt: companyUrls.length > 0 ? new Date() : undefined,
+          // Only mark as scraped if we actually scraped — /api/articles/scrape-websites
+          // selects on this being null, so setting it here would exclude the
+          // article from the very action that is meant to enrich it later.
+          websiteEmailsScrapedAt:
+            SCRAPE_WEBSITES_DURING_CRAWL && companyUrls.length > 0 ? new Date() : undefined,
         },
       });
 
