@@ -26,36 +26,39 @@ export async function scrapeWebsiteEmails(companyUrls: string[]): Promise<string
   // Limit to 3 domains per article to avoid excessive crawling
   const urlsToScrape = uniqueUrls.slice(0, 3);
 
-  for (const baseUrl of urlsToScrape) {
-    try {
-      const origin = new URL(baseUrl).origin;
+  // Domains are scraped concurrently — they are different hosts, so there is
+  // no politeness cost, and doing them one after another meant a single slow
+  // site held up the whole article. Pages within a domain stay sequential with
+  // a delay, so no individual host is hit hard.
+  await Promise.all(
+    urlsToScrape.map(async (baseUrl) => {
+      try {
+        const origin = new URL(baseUrl).origin;
 
-      // Pages to check: the linked page itself + highest-value contact pages
-      const pagesToCheck = [
-        baseUrl,
-        `${origin}/contact`,
-        `${origin}/about`,
-      ];
+        // Pages to check: the linked page itself + highest-value contact pages
+        const pagesToCheck = [
+          baseUrl,
+          `${origin}/contact`,
+          `${origin}/about`,
+        ];
 
-      for (const pageUrl of pagesToCheck) {
-        try {
-          const emails = await scrapePageForEmails(pageUrl);
-          for (const email of emails) {
-            allEmails.add(email);
+        for (const pageUrl of pagesToCheck) {
+          try {
+            const emails = await scrapePageForEmails(pageUrl);
+            for (const email of emails) {
+              allEmails.add(email);
+            }
+            // Polite delay between pages on the same domain
+            await new Promise((r) => setTimeout(r, 200));
+          } catch {
+            // Skip pages that fail
           }
-          // Polite delay between pages on the same domain
-          await new Promise((r) => setTimeout(r, 300));
-        } catch {
-          // Skip pages that fail
         }
+      } catch {
+        // Skip domains that fail
       }
-
-      // Polite delay between domains
-      await new Promise((r) => setTimeout(r, 200));
-    } catch {
-      // Skip domains that fail
-    }
-  }
+    }),
+  );
 
   // Filter out generic/noreply emails
   return [...allEmails].filter((email) => !isGenericEmail(email));

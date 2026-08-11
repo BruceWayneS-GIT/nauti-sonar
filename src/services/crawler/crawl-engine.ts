@@ -26,11 +26,12 @@ const MAX_NEW_ARTICLES_PER_RUN = process.env.MAX_CRAWL_ARTICLES
 // whose process dies before the first one reports 0 despite doing real work.
 const CHECKPOINT_EVERY = 5;
 
-// Scraping company websites for emails costs up to ~48s per article (3 domains
-// x 3 pages x 5s). Doing it inline made crawls so slow they rarely survived.
-// The Articles page has a dedicated "Scrape Websites" action for this, so it is
-// off by default here; set SCRAPE_WEBSITES_DURING_CRAWL=true to restore it.
-const SCRAPE_WEBSITES_DURING_CRAWL = process.env.SCRAPE_WEBSITES_DURING_CRAWL === 'true';
+// How many articles to enrich at once. Metadata and website scraping are
+// almost entirely network wait, so processing sequentially left the crawl
+// idle most of the time. Raise with CRAWL_CONCURRENCY if the box can take it.
+const CONCURRENCY = process.env.CRAWL_CONCURRENCY
+  ? parseInt(process.env.CRAWL_CONCURRENCY, 10)
+  : 5;
 
 // Wall-clock budget for a single run. A crawl that overruns stops cleanly,
 // marks itself COMPLETED and lets the chain continue, rather than running for
@@ -131,7 +132,7 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
 
     // Nothing new — finish immediately rather than churning through the list.
     // Process the new ones in small batches, checkpointing as we go.
-    const batchSize = 10;
+    const batchSize = CONCURRENCY;
     let processedSinceCheckpoint = 0;
     let hitLimit = false;
     let outOfTime = false;
@@ -154,12 +155,7 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
         .slice(i, i + Math.min(batchSize, remaining))
         .map((h) => h.article);
 
-      const { saved, limitReached } = await processArticleBatch(
-        batch,
-        source.id,
-        job.id,
-        MAX_NEW_ARTICLES_PER_RUN - articlesSaved,
-      );
+      const saved = await processArticleBatch(batch, source.id, job.id);
 
       articlesSaved += saved;
       processedSinceCheckpoint += saved;
@@ -173,7 +169,7 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
         processedSinceCheckpoint = 0;
       }
 
-      if (limitReached) {
+      if (articlesSaved >= MAX_NEW_ARTICLES_PER_RUN) {
         hitLimit = true;
         await log(job.id, 'info', `Reached per-run limit of ${MAX_NEW_ARTICLES_PER_RUN} new articles. Auto-continuing...`);
       }
@@ -293,21 +289,19 @@ export function scheduleNextCrawl(sourceId: string | null): void {
   setTimeout(tick, 5_000);
 }
 
+/**
+ * Enrich and save a batch of articles concurrently. The caller sizes the batch
+ * to CONCURRENCY and never exceeds the per-run cap, so this just processes
+ * everything it is given and reports how many were saved.
+ */
 async function processArticleBatch(
   articles: ParsedArticle[],
   sourceId: string,
   jobId: string,
-  maxNew: number,
-): Promise<{ saved: number; limitReached: boolean }> {
+): Promise<number> {
   let saved = 0;
-  let limitReached = false;
 
-  for (const article of articles) {
-    if (saved >= maxNew) {
-      limitReached = true;
-      break;
-    }
-
+  await Promise.all(articles.map(async (article) => {
     try {
       const urlHash = hashUrl(article.url);
 
@@ -317,7 +311,7 @@ async function processArticleBatch(
         select: { id: true },
       });
 
-      if (existing) continue;
+      if (existing) return;
 
       // Enrich with metadata from the article page
       let metadata = null;
@@ -331,10 +325,9 @@ async function processArticleBatch(
 
       const companyUrls = metadata?.companyUrls || [];
 
-      // Scrape company websites for emails if we found outbound website links.
-      // Deferred by default — run "Scrape Websites" from the Articles page.
+      // Scrape company websites for emails if we found outbound website links
       let websiteEmails: string[] = [];
-      if (SCRAPE_WEBSITES_DURING_CRAWL && companyUrls.length > 0) {
+      if (companyUrls.length > 0) {
         try {
           websiteEmails = await scrapeWebsiteEmails(companyUrls);
         } catch {
@@ -421,11 +414,7 @@ async function processArticleBatch(
           twitterUrls,
           companyUrls,
           websiteEmails,
-          // Only mark as scraped if we actually scraped — /api/articles/scrape-websites
-          // selects on this being null, so setting it here would exclude the
-          // article from the very action that is meant to enrich it later.
-          websiteEmailsScrapedAt:
-            SCRAPE_WEBSITES_DURING_CRAWL && companyUrls.length > 0 ? new Date() : undefined,
+          websiteEmailsScrapedAt: companyUrls.length > 0 ? new Date() : undefined,
         },
       });
 
@@ -455,9 +444,9 @@ async function processArticleBatch(
       // Likely a unique constraint violation (race condition), skip
       await log(jobId, 'warn', `Could not save article ${article.url}: ${err}`);
     }
-  }
+  }));
 
-  return { saved, limitReached };
+  return saved;
 }
 
 async function log(jobId: string, level: string, message: string, metadata?: Record<string, string | number | boolean>) {
