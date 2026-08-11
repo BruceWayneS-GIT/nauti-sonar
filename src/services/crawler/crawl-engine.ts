@@ -168,6 +168,11 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
     let hitLimit = false;
     let outOfTime = false;
 
+    if (newArticles.length > 0) {
+      await log(job.id, 'info', `Enriching ${newArticles.length} articles, ${batchSize} at a time`);
+      console.log(`[crawl ${source.name}] entering article loop, ${newArticles.length} queued`);
+    }
+
     for (let i = 0; i < newArticles.length; i += batchSize) {
       if (hitLimit) break;
 
@@ -186,7 +191,16 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
         .slice(i, i + Math.min(batchSize, remaining))
         .map((h) => h.article);
 
-      const saved = await processArticleBatch(batch, source.id, job.id);
+      // console.error as well as the DB log: if the database is the thing
+      // that is failing, a DB-only log records nothing. stderr reaches the
+      // Plesk Node.js log regardless.
+      let saved = 0;
+      try {
+        saved = await processArticleBatch(batch, source.id, job.id);
+      } catch (batchErr) {
+        console.error(`[crawl ${source.name}] batch at offset ${i} threw:`, batchErr);
+        throw batchErr;
+      }
 
       // Hand the event loop back between batches so queued HTTP requests get
       // served. Without this a long crawl can starve the web server enough

@@ -13,7 +13,13 @@ function createPrismaClient() {
     user: decodeURIComponent(url.username),
     password: decodeURIComponent(url.password),
     database: url.pathname.replace('/', ''),
-    connectionLimit: 5,
+    // One pool serves both the web app and background crawls. At 5, a crawl
+    // running a few articles concurrently could take every connection, leaving
+    // page loads — and the crawl's own logging — waiting on the pool.
+    connectionLimit: 15,
+    // Without this a starved pool waits indefinitely and the failure is silent.
+    // Better to throw so it lands in the logs.
+    acquireTimeout: 20000,
   });
   return new PrismaClient({ adapter });
 }
