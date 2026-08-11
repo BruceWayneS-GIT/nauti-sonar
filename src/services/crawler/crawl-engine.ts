@@ -49,6 +49,23 @@ const SITEWIDE_LINKEDIN_THRESHOLD = process.env.SITEWIDE_LINKEDIN_THRESHOLD
   ? parseInt(process.env.SITEWIDE_LINKEDIN_THRESHOLD, 10)
   : 50;
 
+/** Records that this run is still alive, so it is never swept as stuck. */
+async function beat(jobId: string, articlesSaved?: number): Promise<void> {
+  try {
+    await prisma.crawlJob.update({
+      where: { id: jobId },
+      data: { heartbeatAt: new Date(), ...(articlesSaved !== undefined ? { articlesSaved } : {}) },
+    });
+  } catch {
+    // a missed heartbeat is not worth failing the run over
+  }
+}
+
+/** Resident heap in MB — logged so memory pressure is visible, not guessed at. */
+function heapMb(): number {
+  return Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+}
+
 /**
  * Run a crawl for a specific source. Creates a CrawlJob, runs the parser,
  * deduplicates, enriches metadata, and saves articles.
@@ -65,6 +82,7 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
       sourceId,
       status: 'RUNNING',
       startedAt: new Date(),
+      heartbeatAt: new Date(),
     },
   });
 
@@ -101,34 +119,46 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
     // saved nothing and kept the process alive long enough to be recycled.
     const deadline = Date.now() + MAX_RUN_MS;
 
-    const hashed = result.articles.map((a) => ({ article: a, urlHash: hashUrl(a.url) }));
-    const knownHashes = new Set<string>();
+    // Scan the URL list in chunks and stop as soon as we have enough new
+    // articles for this run. Hashing all of them up front and keeping the
+    // whole set in memory doubled the footprint of an already large list —
+    // and the sources that fail are precisely the largest ones.
     const LOOKUP_CHUNK = 500;
+    const newArticles: { article: ParsedArticle; urlHash: string }[] = [];
+    let scanned = 0;
+    let alreadySaved = 0;
 
-    await log(job.id, 'info', `Checking ${hashed.length} URLs against existing articles`);
+    await log(job.id, 'info', `Scanning ${result.articles.length} URLs for new articles (heap ${heapMb()}MB)`);
 
-    for (let i = 0; i < hashed.length; i += LOOKUP_CHUNK) {
-      // The budget must be enforced here too — a stall in this phase would
-      // otherwise never reach the article loop where it used to be checked.
+    for (let i = 0; i < result.articles.length && newArticles.length < MAX_NEW_ARTICLES_PER_RUN; i += LOOKUP_CHUNK) {
+      // The budget applies here too — a stall in this phase would otherwise
+      // never reach the article loop where it used to be the only check.
       if (Date.now() > deadline) {
-        await log(job.id, 'warn', `Run budget reached during dedup lookup at ${i}/${hashed.length}`);
+        await log(job.id, 'warn', `Run budget reached while scanning at ${i}/${result.articles.length}`);
         break;
       }
 
-      const chunk = hashed.slice(i, i + LOOKUP_CHUNK);
+      const slice = result.articles.slice(i, i + LOOKUP_CHUNK);
+      const hashes = slice.map((a) => hashUrl(a.url));
       const found = await prisma.article.findMany({
-        where: { urlHash: { in: chunk.map((h) => h.urlHash) } },
+        where: { urlHash: { in: hashes } },
         select: { urlHash: true },
       });
-      for (const f of found) knownHashes.add(f.urlHash);
-    }
+      const known = new Set(found.map((f) => f.urlHash));
+      alreadySaved += known.size;
+      scanned += slice.length;
 
-    const newArticles = hashed.filter((h) => !knownHashes.has(h.urlHash));
+      for (let j = 0; j < slice.length && newArticles.length < MAX_NEW_ARTICLES_PER_RUN; j++) {
+        if (!known.has(hashes[j])) newArticles.push({ article: slice[j], urlHash: hashes[j] });
+      }
+
+      await beat(job.id);
+    }
 
     await log(
       job.id,
       'info',
-      `${knownHashes.size} already saved, ${newArticles.length} new to process`,
+      `Scanned ${scanned} URLs: ${alreadySaved} already saved, ${newArticles.length} to process this run (heap ${heapMb()}MB)`,
     );
 
     // Nothing new — finish immediately rather than churning through the list.
@@ -166,12 +196,12 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
       articlesSaved += saved;
       processedSinceCheckpoint += saved;
 
-      // Checkpoint progress to DB every CHECKPOINT_EVERY new saves
+      // Heartbeat every batch, carrying progress with it. This both keeps the
+      // job from being swept and makes articlesSaved reflect reality early.
+      await beat(job.id, articlesSaved);
+
       if (processedSinceCheckpoint >= CHECKPOINT_EVERY) {
-        await prisma.crawlJob.update({
-          where: { id: job.id },
-          data: { articlesSaved },
-        });
+        await log(job.id, 'info', `Progress: ${articlesSaved} saved (heap ${heapMb()}MB)`);
         processedSinceCheckpoint = 0;
       }
 
@@ -184,7 +214,7 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
     await log(
       job.id,
       'info',
-      `Saved ${articlesSaved} new articles (${knownHashes.size} already saved, ${Math.max(0, newArticles.length - articlesSaved)} pending next run)`,
+      `Saved ${articlesSaved} new articles (scanned ${scanned}, ${alreadySaved} already saved) — heap ${heapMb()}MB`,
     );
 
     // Mark job complete

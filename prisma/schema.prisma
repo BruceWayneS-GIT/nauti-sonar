@@ -75,6 +75,9 @@ model CrawlJob {
   articlesSaved Int            @default(0)
   errorsCount   Int            @default(0)
   startedAt     DateTime?
+  /// Bumped periodically while a run is alive. Staleness is judged on this,
+  /// not on startedAt — a long but healthy crawl must never be swept.
+  heartbeatAt   DateTime?
   completedAt   DateTime?
   createdAt     DateTime       @default(now())
 

@@ -35,21 +35,36 @@ export async function getDueSources(): Promise<DueSource[]> {
     .sort((a, b) => b.overdueMs - a.overdueMs);
 }
 
-// A job still RUNNING after this long means the process died mid-crawl.
-// Well beyond a legitimate capped run, which takes ~5-10 minutes.
-const STALE_JOB_MS = 30 * 60 * 1000;
+// How long without a heartbeat before a RUNNING job is presumed dead.
+// A live crawl bumps its heartbeat every batch, so this only ever catches a
+// job whose process is genuinely gone.
+//
+// This used to be measured from startedAt, which meant a long but perfectly
+// healthy crawl was marked FAILED the moment it passed the threshold — and
+// because that freed the "is anything running?" check, the next cron tick
+// started the same source again while the original was still going. Judging
+// on liveness rather than age removes that entirely.
+const NO_HEARTBEAT_MS = 5 * 60 * 1000;
 
 /**
- * Marks RUNNING jobs that have outlived STALE_JOB_MS as FAILED.
- * Without this a crashed job would block the crawl chain forever, since
- * the chain waits for the server to be idle before starting the next run.
+ * Marks RUNNING jobs whose process has stopped reporting as FAILED, so a dead
+ * job cannot block the chain forever. Jobs predating heartbeats fall back to
+ * startedAt with a generous allowance.
  */
 export async function cleanupStuckJobs(): Promise<number> {
-  const cutoff = new Date(Date.now() - STALE_JOB_MS);
+  const cutoff = new Date(Date.now() - NO_HEARTBEAT_MS);
+  const legacyCutoff = new Date(Date.now() - 60 * 60 * 1000);
+
   const result = await prisma.crawlJob.updateMany({
     where: {
       status: 'RUNNING',
-      OR: [{ startedAt: { lt: cutoff } }, { startedAt: null }],
+      OR: [
+        { heartbeatAt: { lt: cutoff } },
+        // No heartbeat ever recorded — either a pre-heartbeat job or one that
+        // died before its first batch. Give those a full hour before sweeping.
+        { AND: [{ heartbeatAt: null }, { startedAt: { lt: legacyCutoff } }] },
+        { AND: [{ heartbeatAt: null }, { startedAt: null }] },
+      ],
     },
     data: { status: 'FAILED', completedAt: new Date() },
   });
