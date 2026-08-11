@@ -1,6 +1,8 @@
 import * as cheerio from 'cheerio';
 import { extractEmails } from '@/lib/utils';
 
+const MAX_HTML_CHARS = 1_000_000;
+
 /**
  * Given a list of company website URLs (from an article's outbound links),
  * visit each site's homepage + common contact pages to find email addresses.
@@ -82,7 +84,9 @@ async function scrapePageForEmails(url: string): Promise<string[]> {
   const contentType = response.headers.get('content-type') || '';
   if (!contentType.includes('text/html')) return [];
 
-  const html = await response.text();
+  // Bounded for the same reason as in article-metadata: a synchronous parse
+  // of a huge page blocks the event loop and makes the whole app unresponsive.
+  const html = (await response.text()).slice(0, MAX_HTML_CHARS);
   const $ = cheerio.load(html);
 
   const emails: string[] = [];

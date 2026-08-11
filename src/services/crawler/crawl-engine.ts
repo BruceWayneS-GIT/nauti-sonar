@@ -26,12 +26,13 @@ const MAX_NEW_ARTICLES_PER_RUN = process.env.MAX_CRAWL_ARTICLES
 // whose process dies before the first one reports 0 despite doing real work.
 const CHECKPOINT_EVERY = 5;
 
-// How many articles to enrich at once. Metadata and website scraping are
-// almost entirely network wait, so processing sequentially left the crawl
-// idle most of the time. Raise with CRAWL_CONCURRENCY if the box can take it.
+// How many articles to enrich at once. Enrichment is mostly network wait, but
+// HTML parsing is synchronous and blocks the event loop, so this is kept
+// modest — too high and the app stops answering HTTP while it parses.
+// Tune with CRAWL_CONCURRENCY.
 const CONCURRENCY = process.env.CRAWL_CONCURRENCY
   ? parseInt(process.env.CRAWL_CONCURRENCY, 10)
-  : 5;
+  : 3;
 
 // Wall-clock budget for a single run. A crawl that overruns stops cleanly,
 // marks itself COMPLETED and lets the chain continue, rather than running for
@@ -156,6 +157,11 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
         .map((h) => h.article);
 
       const saved = await processArticleBatch(batch, source.id, job.id);
+
+      // Hand the event loop back between batches so queued HTTP requests get
+      // served. Without this a long crawl can starve the web server enough
+      // that nginx times the app out and Passenger recycles it mid-crawl.
+      await new Promise((r) => setImmediate(r));
 
       articlesSaved += saved;
       processedSinceCheckpoint += saved;

@@ -1,6 +1,11 @@
 import * as cheerio from 'cheerio';
 import { extractEmails, isLinkedinProfileUrl } from '@/lib/utils';
 
+// Upper bound on HTML handed to cheerio. Everything useful here (meta tags,
+// links, body text) lives well inside this; the tail of a huge page is
+// boilerplate and comments, and parsing it starves the event loop.
+const MAX_HTML_CHARS = 1_500_000;
+
 export interface OutboundLink {
   url: string;
   text: string;
@@ -38,7 +43,11 @@ export async function extractArticleMetadata(url: string): Promise<ArticleMetada
 
     if (!response.ok) return null;
 
-    const html = await response.text();
+    // cheerio.load is synchronous and CPU-bound — it blocks Node's event loop
+    // for its whole duration, during which the app cannot serve any HTTP
+    // request. Multi-megabyte news pages were blocking it long enough for
+    // nginx to time out the app entirely, so cap what we hand to the parser.
+    const html = (await response.text()).slice(0, MAX_HTML_CHARS);
     const $ = cheerio.load(html);
 
     // Title
