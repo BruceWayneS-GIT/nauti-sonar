@@ -89,11 +89,22 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
     // Doing this per-article meant a source whose articles were all already
     // saved still made one round-trip per URL — 11k sequential queries that
     // saved nothing and kept the process alive long enough to be recycled.
+    const deadline = Date.now() + MAX_RUN_MS;
+
     const hashed = result.articles.map((a) => ({ article: a, urlHash: hashUrl(a.url) }));
     const knownHashes = new Set<string>();
-    const LOOKUP_CHUNK = 1000;
+    const LOOKUP_CHUNK = 500;
+
+    await log(job.id, 'info', `Checking ${hashed.length} URLs against existing articles`);
 
     for (let i = 0; i < hashed.length; i += LOOKUP_CHUNK) {
+      // The budget must be enforced here too — a stall in this phase would
+      // otherwise never reach the article loop where it used to be checked.
+      if (Date.now() > deadline) {
+        await log(job.id, 'warn', `Run budget reached during dedup lookup at ${i}/${hashed.length}`);
+        break;
+      }
+
       const chunk = hashed.slice(i, i + LOOKUP_CHUNK);
       const found = await prisma.article.findMany({
         where: { urlHash: { in: chunk.map((h) => h.urlHash) } },
@@ -116,7 +127,6 @@ export async function runCrawl(sourceId: string): Promise<CrawlResult> {
     let processedSinceCheckpoint = 0;
     let hitLimit = false;
     let outOfTime = false;
-    const deadline = Date.now() + MAX_RUN_MS;
 
     for (let i = 0; i < newArticles.length; i += batchSize) {
       if (hitLimit) break;
