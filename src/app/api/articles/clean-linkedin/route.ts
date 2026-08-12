@@ -41,11 +41,17 @@ export async function GET(request: NextRequest) {
       companyUrls: true,
       scrapedEmails: true,
       websiteEmails: true,
+      // NULL means the page was never successfully fetched, so we know
+      // nothing about whether it has a LinkedIn profile.
+      outboundLinks: true,
     },
   });
 
   type Job = { id: string; title: string; kept: string[]; removed: string[]; archive: boolean };
   const jobs: Job[] = [];
+  // Articles whose page we never read. Absence of a LinkedIn URL on these
+  // proves nothing, so they must be re-scraped before any archiving decision.
+  const neverScraped: string[] = [];
 
   for (const a of articles) {
     const urls = asStrings(a.linkedinUrls);
@@ -58,8 +64,16 @@ export async function GET(request: NextRequest) {
     // articles are archived too.
     const hasAnyLead = kept.length > 0;
 
-    const archive = !hasAnyLead && a.status !== 'ARCHIVED' && !ACTIONED.has(a.status);
+    const wasScraped = a.outboundLinks !== null;
+    const archivable = !hasAnyLead && a.status !== 'ARCHIVED' && !ACTIONED.has(a.status);
 
+    if (archivable && !wasScraped) {
+      // Never read — re-scrape it rather than archiving on missing data.
+      neverScraped.push(a.title);
+      if (!needsClean) continue;
+    }
+
+    const archive = archivable && wasScraped;
     if (!needsClean && !archive) continue;
     jobs.push({ id: a.id, title: a.title, kept, removed, archive });
   }
@@ -76,7 +90,13 @@ export async function GET(request: NextRequest) {
       articlesToArchive: toArchive.length,
       cleanExamples: toClean.slice(0, 5).map((j) => ({ title: j.title, removed: j.removed.slice(0, 2) })),
       archiveExamples: toArchive.slice(0, 5).map((j) => j.title),
-      note: 'Articles with no LinkedIn profile are archived; actioned articles are never touched. Re-run with ?apply=true.',
+      skippedNeverScraped: neverScraped.length,
+      skippedExamples: neverScraped.slice(0, 5),
+      note:
+        'Articles with no LinkedIn profile are archived. Articles whose page was never successfully ' +
+        'fetched are skipped, not archived — run Scrape Links on those first, since a missing ' +
+        'LinkedIn there only means we never read the page. Actioned articles are never touched. ' +
+        'Re-run with ?apply=true.',
     });
   }
 
@@ -120,6 +140,7 @@ export async function GET(request: NextRequest) {
     applied: true,
     articlesCleaned: cleaned,
     articlesArchived: archived,
+    skippedNeverScraped: neverScraped.length,
     remaining: Math.max(0, remaining),
     done: remaining <= 0,
   });
