@@ -14,9 +14,19 @@ export class SitemapParser extends BaseParser {
 
     const candidates: string[] = [];
 
+    // Sitemaps and robots.txt live at the domain root, so a source whose
+    // rootUrl includes a path (e.g. .../brandvoice) must not have that path
+    // prepended — it would ask for /brandvoice/sitemap.xml, which never exists.
+    let origin = this.baseUrl;
+    try {
+      origin = new URL(this.baseUrl).origin;
+    } catch {
+      // malformed rootUrl — fall back to it verbatim
+    }
+
     // robots.txt is authoritative when present, so try what it declares first
     try {
-      const robots = await this.fetchPage(`${this.baseUrl}/robots.txt`);
+      const robots = await this.fetchPage(`${origin}/robots.txt`);
       for (const line of robots.split(/\r?\n/)) {
         const match = line.match(/^\s*sitemap:\s*(\S+)/i);
         if (match) candidates.push(match[1].trim());
@@ -33,7 +43,7 @@ export class SitemapParser extends BaseParser {
       '/post-sitemap.xml',
       '/news-sitemap.xml',
     ]) {
-      const url = `${this.baseUrl}${path}`;
+      const url = `${origin}${path}`;
       if (!candidates.includes(url)) candidates.push(url);
     }
 
