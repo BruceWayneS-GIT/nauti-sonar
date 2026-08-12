@@ -17,6 +17,12 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await request.json();
+
+  // Same trimming as on create — an edit must not reintroduce the stray
+  // whitespace that silently breaks every crawl for a source.
+  if (typeof body.name === 'string') body.name = body.name.trim();
+  if (typeof body.rootUrl === 'string') body.rootUrl = body.rootUrl.trim().replace(/\/+$/, '');
+
   const source = await prisma.source.update({ where: { id }, data: body });
   return NextResponse.json(source);
 }

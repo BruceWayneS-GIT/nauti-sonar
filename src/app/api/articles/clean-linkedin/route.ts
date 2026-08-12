@@ -19,10 +19,9 @@ const asStrings = (v: unknown): string[] =>
  * Removes LinkedIn share widgets, feed posts and login links from
  * linkedinUrls, leaving only person (/in/) and company (/company/) pages.
  *
- * Because hasAnyLead counts linkedinUrls, articles whose only "lead" was
- * their own share button were marked NEW. After stripping, any article left
- * with no leads at all is archived — the same rule the crawler applies to
- * new articles.
+ * Then applies the crawler's rule to what is already stored: a LinkedIn
+ * profile is how a client gets contacted, so an article without one is
+ * archived — an email or company site alone does not keep it in the queue.
  *
  * Articles you have actioned (REVIEWING/READY/SENT/COMPLETED) are never
  * archived, whatever their leads look like.
@@ -54,14 +53,10 @@ export async function GET(request: NextRequest) {
     const removed = urls.filter((u) => !isLinkedinProfileUrl(u));
     const needsClean = removed.length > 0;
 
-    // Mirrors the crawler's hasAnyLead, using the cleaned LinkedIn list.
-    const hasAnyLead =
-      kept.length > 0 ||
-      asStrings(a.twitterUrls).length > 0 ||
-      asStrings(a.companyUrls).length > 0 ||
-      asStrings(a.scrapedEmails).length > 0 ||
-      asStrings(a.websiteEmails).length > 0 ||
-      Boolean(a.contactEmail);
+    // Mirrors the crawler's rule: a LinkedIn profile is the lead. An email or
+    // company site on its own is not a way to contact the client, so those
+    // articles are archived too.
+    const hasAnyLead = kept.length > 0;
 
     const archive = !hasAnyLead && a.status !== 'ARCHIVED' && !ACTIONED.has(a.status);
 
@@ -81,7 +76,7 @@ export async function GET(request: NextRequest) {
       articlesToArchive: toArchive.length,
       cleanExamples: toClean.slice(0, 5).map((j) => ({ title: j.title, removed: j.removed.slice(0, 2) })),
       archiveExamples: toArchive.slice(0, 5).map((j) => j.title),
-      note: 'Articles left with no leads are archived; actioned articles are never touched. Re-run with ?apply=true.',
+      note: 'Articles with no LinkedIn profile are archived; actioned articles are never touched. Re-run with ?apply=true.',
     });
   }
 
@@ -96,7 +91,7 @@ export async function GET(request: NextRequest) {
       if (job.removed.length > 0) data.linkedinUrls = job.kept;
       if (job.archive) {
         data.status = 'ARCHIVED';
-        data.internalNotes = 'No leads found';
+        data.internalNotes = 'No LinkedIn profile found';
       }
 
       await prisma.article.update({ where: { id: job.id }, data });
@@ -108,7 +103,7 @@ export async function GET(request: NextRequest) {
           data: {
             articleId: job.id,
             toStatus: 'ARCHIVED',
-            note: 'Auto-archived: no leads found after removing LinkedIn share links',
+            note: 'Auto-archived: no LinkedIn profile to contact',
           },
         });
       }

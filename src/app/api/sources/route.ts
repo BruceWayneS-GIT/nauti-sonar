@@ -15,8 +15,10 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const source = await prisma.source.create({
     data: {
-      name: body.name,
-      rootUrl: body.rootUrl,
+      // Trimmed at the door — a trailing space in rootUrl silently breaks
+      // every crawl for that source, and one in name breaks source lookups.
+      name: String(body.name ?? '').trim(),
+      rootUrl: String(body.rootUrl ?? '').trim().replace(/\/+$/, ''),
       crawlMethod: body.crawlMethod || 'SITEMAP',
       crawlFrequency: body.crawlFrequency || 60,
       status: body.status || 'ACTIVE',

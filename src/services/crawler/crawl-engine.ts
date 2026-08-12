@@ -391,7 +391,11 @@ async function processArticleBatch(
 
       const linkedinUrls = metadata?.linkedinUrls || [];
       const twitterUrls = metadata?.twitterUrls || [];
-      const hasAnyLead = mergedEmails.length > 0 || linkedinUrls.length > 0 || twitterUrls.length > 0 || companyUrls.length > 0;
+      // A LinkedIn profile is how clients get contacted, so it is the lead —
+      // an email, company site or Twitter handle on its own is not enough to
+      // keep an article in the queue. linkedinUrls only ever holds /in/ and
+      // /company/ pages, so share widgets cannot satisfy this.
+      const hasAnyLead = linkedinUrls.length > 0;
 
       // Has any of these LinkedIn profiles already been captured elsewhere?
       // Indexed point lookup against the claims table.
@@ -438,7 +442,7 @@ async function processArticleBatch(
         : sameTitleArticle
           ? `Duplicate story: same headline already captured on article ${sameTitleArticle.id}`
           : !hasAnyLead
-            ? 'No leads found'
+            ? 'No LinkedIn profile found'
             : null;
 
       const isDuplicate = Boolean(duplicateOf || sameTitleArticle);

@@ -20,7 +20,10 @@ export abstract class BaseParser {
   protected config: Record<string, unknown>;
 
   constructor(baseUrl: string, config: Record<string, unknown> = {}) {
-    this.baseUrl = baseUrl.replace(/\/$/, '');
+    // Trim as well as strip trailing slashes: a stray space in a source's
+    // rootUrl produced requests to "https://site.com /sitemap.xml", which
+    // fail with one error and no articles and no obvious reason why.
+    this.baseUrl = baseUrl.trim().replace(/\/+$/, '');
     this.config = config;
   }
 
