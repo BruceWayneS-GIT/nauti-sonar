@@ -19,7 +19,10 @@ export class SitemapParser extends BaseParser {
     // prepended — it would ask for /brandvoice/sitemap.xml, which never exists.
     let origin = this.baseUrl;
     try {
-      origin = new URL(this.baseUrl).origin;
+      const parsed = new URL(this.baseUrl);
+      // A typo'd scheme ("ttps://...") parses, but yields origin "null" and
+      // would produce requests to "null/sitemap.xml". Only trust a real one.
+      if (parsed.origin.startsWith('http')) origin = parsed.origin;
     } catch {
       // malformed rootUrl — fall back to it verbatim
     }
