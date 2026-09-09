@@ -43,6 +43,14 @@ export function normalizeUrl(url: string): string {
 }
 
 /**
+ * True only for LinkedIn person (/in/) or company (/company/) pages.
+ * Share buttons, feed posts and login links all return false.
+ */
+export function isLinkedinProfileUrl(url: string): boolean {
+  return normalizeLinkedinUrl(url) !== null;
+}
+
+/**
  * Reduce a LinkedIn URL to a stable identity key, e.g.
  *   https://www.linkedin.com/in/Jane-Doe-123/?trk=abc  ->  linkedin.com/in/jane-doe-123
  *   https://uk.linkedin.com/company/Acme               ->  linkedin.com/company/acme
@@ -51,14 +59,6 @@ export function normalizeUrl(url: string): string {
  * to a post or feed identifies no one, so it must never trigger dedup.
  * Returns null for anything else.
  */
-/**
- * True only for LinkedIn person (/in/) or company (/company/) pages.
- * Share buttons, feed posts and login links all return false.
- */
-export function isLinkedinProfileUrl(url: string): boolean {
-  return normalizeLinkedinUrl(url) !== null;
-}
-
 export function normalizeLinkedinUrl(url: string): string | null {
   try {
     const u = new URL(url);
@@ -73,6 +73,39 @@ export function normalizeLinkedinUrl(url: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * True when a LinkedIn URL is the article author's own profile.
+ *
+ * A byline's LinkedIn is the journalist or editor who wrote the piece, not
+ * the client being featured, so it must never count as a lead to contact.
+ *
+ * Matching requires every part of the author's name to appear in the profile
+ * slug, and at least two name parts — a single common first name matching is
+ * too weak, and wrongly archiving a real lead is worse than keeping a stray
+ * byline. LinkedIn's numeric suffixes (jane-doe-8a12b3) are ignored.
+ */
+export function isAuthorLinkedinUrl(url: string, author: string | null | undefined): boolean {
+  if (!author) return false;
+
+  const key = normalizeLinkedinUrl(url);
+  // Company pages are never a byline
+  if (!key || !key.startsWith('linkedin.com/in/')) return false;
+
+  const slugTokens = new Set(
+    key.slice('linkedin.com/in/'.length).split('-').filter((t) => /^[a-z]{2,}$/.test(t)),
+  );
+
+  const nameTokens = author
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length >= 2);
+
+  if (nameTokens.length < 2) return false;
+
+  return nameTokens.every((t) => slugTokens.has(t));
 }
 
 /** Create a hash of a normalized URL for fast dedup lookups */

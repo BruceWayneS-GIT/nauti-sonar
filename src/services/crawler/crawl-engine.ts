@@ -1,5 +1,5 @@
 import prisma from '@/lib/db';
-import { hashUrl, normalizeLinkedinUrl } from '@/lib/utils';
+import { hashUrl, normalizeLinkedinUrl, isAuthorLinkedinUrl } from '@/lib/utils';
 import { titleKey } from '@/lib/dedupe';
 import { getParser } from '@/services/parsers';
 import { extractArticleMetadata } from './article-metadata';
@@ -391,16 +391,24 @@ async function processArticleBatch(
 
       const linkedinUrls = metadata?.linkedinUrls || [];
       const twitterUrls = metadata?.twitterUrls || [];
+      // The byline's own LinkedIn is the journalist who wrote the piece, not
+      // the client being featured — we do not want to contact them, so it is
+      // kept on the record but never counts as a lead.
+      const resolvedAuthor = metadata?.author || article.author || null;
+      const leadLinkedinUrls = linkedinUrls.filter(
+        (u) => !isAuthorLinkedinUrl(u, resolvedAuthor),
+      );
+
       // A LinkedIn profile is how clients get contacted, so it is the lead —
       // an email, company site or Twitter handle on its own is not enough to
       // keep an article in the queue. linkedinUrls only ever holds /in/ and
       // /company/ pages, so share widgets cannot satisfy this.
-      const hasAnyLead = linkedinUrls.length > 0;
+      const hasAnyLead = leadLinkedinUrls.length > 0;
 
       // Has any of these LinkedIn profiles already been captured elsewhere?
       // Indexed point lookup against the claims table.
       const linkedinKeys = [
-        ...new Set(linkedinUrls.map(normalizeLinkedinUrl).filter((k): k is string => k !== null)),
+        ...new Set(leadLinkedinUrls.map(normalizeLinkedinUrl).filter((k): k is string => k !== null)),
       ];
 
       // Profiles flagged `ignored` are publisher/sitewide links (e.g. the
@@ -442,7 +450,9 @@ async function processArticleBatch(
         : sameTitleArticle
           ? `Duplicate story: same headline already captured on article ${sameTitleArticle.id}`
           : !hasAnyLead
-            ? 'No LinkedIn profile found'
+            ? linkedinUrls.length > 0
+              ? "Only the author's own LinkedIn found"
+              : 'No LinkedIn profile found'
             : null;
 
       const isDuplicate = Boolean(duplicateOf || sameTitleArticle);

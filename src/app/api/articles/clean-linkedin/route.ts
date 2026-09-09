@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { isLinkedinProfileUrl } from '@/lib/utils';
+import { isLinkedinProfileUrl, isAuthorLinkedinUrl } from '@/lib/utils';
 
 export const maxDuration = 300;
 
@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
     select: {
       id: true,
       title: true,
+      author: true,
       status: true,
       contactEmail: true,
       linkedinUrls: true,
@@ -47,7 +48,10 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  type Job = { id: string; title: string; kept: string[]; removed: string[]; archive: boolean };
+  type Job = {
+    id: string; title: string; kept: string[]; removed: string[];
+    archive: boolean; authorOnly: boolean;
+  };
   const jobs: Job[] = [];
   // Articles whose page we never read. Absence of a LinkedIn URL on these
   // proves nothing, so they must be re-scraped before any archiving decision.
@@ -61,8 +65,11 @@ export async function GET(request: NextRequest) {
 
     // Mirrors the crawler's rule: a LinkedIn profile is the lead. An email or
     // company site on its own is not a way to contact the client, so those
-    // articles are archived too.
-    const hasAnyLead = kept.length > 0;
+    // articles are archived too — as are articles whose only LinkedIn is the
+    // byline's own profile, since that is the journalist, not the client.
+    const leads = kept.filter((u) => !isAuthorLinkedinUrl(u, a.author));
+    const hasAnyLead = leads.length > 0;
+    const authorOnly = leads.length === 0 && kept.length > 0;
 
     const wasScraped = a.outboundLinks !== null;
     const archivable = !hasAnyLead && a.status !== 'ARCHIVED' && !ACTIONED.has(a.status);
@@ -75,7 +82,7 @@ export async function GET(request: NextRequest) {
 
     const archive = archivable && wasScraped;
     if (!needsClean && !archive) continue;
-    jobs.push({ id: a.id, title: a.title, kept, removed, archive });
+    jobs.push({ id: a.id, title: a.title, kept, removed, archive, authorOnly });
   }
 
   const toClean = jobs.filter((j) => j.removed.length > 0);
@@ -88,6 +95,7 @@ export async function GET(request: NextRequest) {
       articlesToClean: toClean.length,
       junkUrlsToRemove: toClean.reduce((n, j) => n + j.removed.length, 0),
       articlesToArchive: toArchive.length,
+      ofWhichAuthorOnly: toArchive.filter((j) => j.authorOnly).length,
       cleanExamples: toClean.slice(0, 5).map((j) => ({ title: j.title, removed: j.removed.slice(0, 2) })),
       archiveExamples: toArchive.slice(0, 5).map((j) => j.title),
       skippedNeverScraped: neverScraped.length,
@@ -111,7 +119,9 @@ export async function GET(request: NextRequest) {
       if (job.removed.length > 0) data.linkedinUrls = job.kept;
       if (job.archive) {
         data.status = 'ARCHIVED';
-        data.internalNotes = 'No LinkedIn profile found';
+        data.internalNotes = job.authorOnly
+          ? "Only the author's own LinkedIn found"
+          : 'No LinkedIn profile found';
       }
 
       await prisma.article.update({ where: { id: job.id }, data });
@@ -123,7 +133,9 @@ export async function GET(request: NextRequest) {
           data: {
             articleId: job.id,
             toStatus: 'ARCHIVED',
-            note: 'Auto-archived: no LinkedIn profile to contact',
+            note: job.authorOnly
+              ? "Auto-archived: only the author's own LinkedIn, not a client"
+              : 'Auto-archived: no LinkedIn profile to contact',
           },
         });
       }
