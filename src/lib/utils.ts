@@ -105,7 +105,14 @@ export function isAuthorLinkedinUrl(url: string, author: string | null | undefin
 
   if (nameTokens.length < 2) return false;
 
-  return nameTokens.every((t) => slugTokens.has(t));
+  // Hyphenated slug: madeline-garfinkle
+  if (nameTokens.every((t) => slugTokens.has(t))) return true;
+
+  // Concatenated slug: madelinegarfinkle, or madelinegarfinkle1a2b.
+  // LinkedIn lets people choose either form, so matching only the hyphenated
+  // one silently misses half of all bylines.
+  const slugFlat = key.slice('linkedin.com/in/'.length).replace(/[^a-z]/g, '');
+  return slugFlat.includes(nameTokens.join(''));
 }
 
 /** Create a hash of a normalized URL for fast dedup lookups */
