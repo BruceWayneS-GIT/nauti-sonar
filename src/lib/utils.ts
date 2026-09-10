@@ -90,12 +90,11 @@ export function isAuthorLinkedinUrl(url: string, author: string | null | undefin
   if (!author) return false;
 
   const key = normalizeLinkedinUrl(url);
-  // Company pages are never a byline
-  if (!key || !key.startsWith('linkedin.com/in/')) return false;
+  if (!key) return false;
 
-  const slugTokens = new Set(
-    key.slice('linkedin.com/in/'.length).split('-').filter((t) => /^[a-z]{2,}$/.test(t)),
-  );
+  // Personal brand pages count too: "Ivan Misner" -> company/ivanmisner
+  const slug = key.replace(/^linkedin\.com\/(in|company)\//, '');
+  const slugTokens = new Set(slug.split('-').filter((t) => /^[a-z]{2,}$/.test(t)));
 
   // Post-nominals are part of the byline but never part of the profile slug,
   // e.g. "Portia Asli, P.Eng., MBA" -> in/portiaasli
@@ -115,14 +114,34 @@ export function isAuthorLinkedinUrl(url: string, author: string | null | undefin
   // Hyphenated slug: madeline-garfinkle
   if (nameTokens.every((t) => slugTokens.has(t))) return true;
 
-  // Concatenated slug: madelinegarfinkle, or madelinegarfinkle1a2b.
-  // LinkedIn lets people choose either form, so matching only the hyphenated
-  // one silently misses half of all bylines.
-  const slugFlat = key.slice('linkedin.com/in/'.length).replace(/[^a-z]/g, '');
-  if (slugFlat.includes(nameTokens.join(''))) return true;
+  const slugFlat = slug.replace(/[^a-z]/g, '');
 
-  // Surname-first handles are common too: "Amine Rahal" -> in/rahalamine
-  return slugFlat.includes([...nameTokens].reverse().join(''));
+  // Name parts in order, with anything allowed between them. Catches the
+  // middle initials people put in handles — "Andrew Walker" ->
+  // andrewjwalker, "Ryan Wong" -> ryanhywong — which a plain concatenated
+  // comparison cannot see.
+  if (containsInOrder(slugFlat, nameTokens)) return true;
+
+  // Surname-first handles: "Amine Rahal" -> rahalamine
+  if (containsInOrder(slugFlat, [...nameTokens].reverse())) return true;
+
+  // A distinctive surname alone is enough: "Max Faldin" -> faldin,
+  // "Mykola Srebniuk" -> srebniuk. Deliberately skips the first name, since
+  // a common given name would otherwise match unrelated people.
+  return nameTokens
+    .slice(1)
+    .some((t) => t.length >= 6 && slugFlat.includes(t));
+}
+
+/** True if every part appears in the string, in order, gaps allowed. */
+function containsInOrder(haystack: string, parts: string[]): boolean {
+  let from = 0;
+  for (const part of parts) {
+    const at = haystack.indexOf(part, from);
+    if (at === -1) return false;
+    from = at + part.length;
+  }
+  return true;
 }
 
 /** Create a hash of a normalized URL for fast dedup lookups */
