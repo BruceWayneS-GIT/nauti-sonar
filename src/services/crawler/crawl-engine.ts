@@ -403,13 +403,29 @@ async function processArticleBatch(
       // an email, company site or Twitter handle on its own is not enough to
       // keep an article in the queue. linkedinUrls only ever holds /in/ and
       // /company/ pages, so share widgets cannot satisfy this.
-      const hasAnyLead = leadLinkedinUrls.length > 0;
+      // Set below, once ignored profiles have been filtered out.
+      let hasAnyLead = leadLinkedinUrls.length > 0;
 
       // Has any of these LinkedIn profiles already been captured elsewhere?
       // Indexed point lookup against the claims table.
-      const linkedinKeys = [
+      let linkedinKeys = [
         ...new Set(leadLinkedinUrls.map(normalizeLinkedinUrl).filter((k): k is string => k !== null)),
       ];
+
+      // Profiles flagged `ignored` are not contactable leads — either a
+      // publisher's sitewide footer link, or a byline whose slug the name rule
+      // cannot match (a nickname, initials, or a brand handle). Detected by
+      // recurrence across one author's articles.
+      if (linkedinKeys.length > 0) {
+        const ignoredRows = await prisma.articleLinkedin.findMany({
+          where: { linkedinUrl: { in: linkedinKeys }, ignored: true },
+          select: { linkedinUrl: true },
+        });
+        if (ignoredRows.length > 0) {
+          const ignoredSet = new Set(ignoredRows.map((r) => r.linkedinUrl));
+          linkedinKeys = linkedinKeys.filter((k) => !ignoredSet.has(k));
+        }
+      }
 
       // Profiles flagged `ignored` are publisher/sitewide links (e.g. the
       // LinkedIn in a site footer, which appears on every article) — they
@@ -444,6 +460,8 @@ async function processArticleBatch(
             select: { id: true },
           })
         : null;
+
+      hasAnyLead = linkedinKeys.length > 0;
 
       const archiveNote = duplicateOf
         ? `Duplicate lead: ${duplicateOf.linkedinUrl} already captured on article ${duplicateOf.articleId}`

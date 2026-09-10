@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { isLinkedinProfileUrl, isAuthorLinkedinUrl } from '@/lib/utils';
+import { isLinkedinProfileUrl, isAuthorLinkedinUrl, normalizeLinkedinUrl } from '@/lib/utils';
 
 export const maxDuration = 300;
 
@@ -29,6 +29,14 @@ const asStrings = (v: unknown): string[] =>
 export async function GET(request: NextRequest) {
   const apply = request.nextUrl.searchParams.get('apply') === 'true';
   const limit = Number(request.nextUrl.searchParams.get('limit')) || DEFAULT_LIMIT;
+
+  // Profiles already known not to be contactable: publisher footer links, and
+  // bylines identified by recurrence rather than by name.
+  const ignoredRows = await prisma.articleLinkedin.findMany({
+    where: { ignored: true },
+    select: { linkedinUrl: true },
+  });
+  const ignoredProfiles = new Set(ignoredRows.map((r) => r.linkedinUrl));
 
   const articles = await prisma.article.findMany({
     select: {
@@ -67,7 +75,11 @@ export async function GET(request: NextRequest) {
     // company site on its own is not a way to contact the client, so those
     // articles are archived too — as are articles whose only LinkedIn is the
     // byline's own profile, since that is the journalist, not the client.
-    const leads = kept.filter((u) => !isAuthorLinkedinUrl(u, a.author));
+    const leads = kept.filter((u) => {
+      if (isAuthorLinkedinUrl(u, a.author)) return false;
+      const key = normalizeLinkedinUrl(u);
+      return !(key && ignoredProfiles.has(key));
+    });
     const hasAnyLead = leads.length > 0;
     const authorOnly = leads.length === 0 && kept.length > 0;
 

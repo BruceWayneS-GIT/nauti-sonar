@@ -97,11 +97,18 @@ export function isAuthorLinkedinUrl(url: string, author: string | null | undefin
     key.slice('linkedin.com/in/'.length).split('-').filter((t) => /^[a-z]{2,}$/.test(t)),
   );
 
+  // Post-nominals are part of the byline but never part of the profile slug,
+  // e.g. "Portia Asli, P.Eng., MBA" -> in/portiaasli
+  const CREDENTIALS = new Set([
+    'phd', 'mba', 'md', 'cpa', 'cfa', 'esq', 'jr', 'sr', 'ii', 'iii', 'iv',
+    'eng', 'pe', 'rn', 'dds', 'do', 'jd', 'msc', 'bsc', 'ma', 'ba', 'cepa',
+  ]);
+
   const nameTokens = author
     .toLowerCase()
     .replace(/[^a-z\s]/g, ' ')
     .split(/\s+/)
-    .filter((t) => t.length >= 2);
+    .filter((t) => t.length >= 2 && !CREDENTIALS.has(t));
 
   if (nameTokens.length < 2) return false;
 
@@ -112,7 +119,10 @@ export function isAuthorLinkedinUrl(url: string, author: string | null | undefin
   // LinkedIn lets people choose either form, so matching only the hyphenated
   // one silently misses half of all bylines.
   const slugFlat = key.slice('linkedin.com/in/'.length).replace(/[^a-z]/g, '');
-  return slugFlat.includes(nameTokens.join(''));
+  if (slugFlat.includes(nameTokens.join(''))) return true;
+
+  // Surname-first handles are common too: "Amine Rahal" -> in/rahalamine
+  return slugFlat.includes([...nameTokens].reverse().join(''));
 }
 
 /** Create a hash of a normalized URL for fast dedup lookups */
