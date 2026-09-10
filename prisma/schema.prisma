@@ -149,6 +149,11 @@ model Article {
   websiteEmails            Json              @default("[]")
   websiteEmailsScrapedAt   DateTime?
 
+  /// When this article's outbound links were last re-extracted. Lets a
+  /// re-scrape resume where it left off after the rules for what counts as
+  /// a lead have changed.
+  linksRefreshedAt         DateTime?
+
   contactEmail         String?           @db.VarChar(255)
   contactUrl           String?           @db.Text
   contactType          ContactType?
@@ -171,6 +176,7 @@ model Article {
   @@index([publishedAt])
   @@index([contactConfidence])
   @@index([sourceId, titleKey])
+  @@index([sourceId, linksRefreshedAt])
   @@map("articles")
 }
 
