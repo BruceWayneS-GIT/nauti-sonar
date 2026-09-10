@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import { extractEmails, isLinkedinProfileUrl } from '@/lib/utils';
+import { extractEmails, isLinkedinProfileUrl, normalizeLinkedinUrl } from '@/lib/utils';
 
 // Upper bound on HTML handed to cheerio. Everything useful here (meta tags,
 // links, body text) lives well inside this; the tail of a huge page is
@@ -142,6 +142,19 @@ export async function extractArticleMetadata(url: string): Promise<ArticleMetada
     // "artversion" or "thetechjesus", but their position on the page gives
     // them away regardless of what the slug says.
     const authorAreaUrls = new Set<string>();
+
+    // Best signal of all: many publishers declare the author's own profiles in
+    // JSON-LD as author.sameAs. That is authoritative — no name matching can
+    // beat the site telling us directly, and it is the only thing that catches
+    // handles bearing no relation to the name (artversion, thetechjesus).
+    // Compared on the normalized key as well as the raw URL — the declared
+    // form and the linked form routinely differ by a trailing slash.
+    const authorProfileKeys = new Set<string>();
+    for (const u of extractAuthorProfilesFromJsonLd($)) {
+      authorAreaUrls.add(u.split('?')[0]);
+      const key = normalizeLinkedinUrl(u);
+      if (key) authorProfileKeys.add(key);
+    }
     $(
       '.author-bio a[href], .author-info a[href], .author-box a[href], ' +
       '.post-author a[href], .entry-author a[href], .article-author a[href], ' +
@@ -199,8 +212,11 @@ export async function extractArticleMetadata(url: string): Promise<ArticleMetada
       // Skip site-wide social accounts (appear in header/footer on every page)
       if (sitewideSocialUrls.has(fullUrl.split('?')[0])) return;
 
-      // Skip anything in the author's own byline/bio block
+      // Skip anything in the author's own byline/bio block, or that the page
+      // declares as belonging to the author
       if (authorAreaUrls.has(fullUrl.split('?')[0])) return;
+      const liKey = normalizeLinkedinUrl(fullUrl);
+      if (liKey && authorProfileKeys.has(liKey)) return;
 
       if (seenUrls.has(fullUrl)) return;
       seenUrls.add(fullUrl);
@@ -312,6 +328,66 @@ function isShareIntent(url: string): boolean {
   // Lowercased: real-world share URLs vary in casing (e.g. LinkedIn's shareArticle)
   const lower = url.toLowerCase();
   return patterns.some((p) => lower.includes(p));
+}
+
+
+/**
+ * Collect the URLs a page declares as belonging to the article's author,
+ * via JSON-LD author.sameAs. Handles sameAs given as an array, a single
+ * string, or — as Entrepreneur does — a string containing a JSON array.
+ */
+function extractAuthorProfilesFromJsonLd($: cheerio.CheerioAPI): string[] {
+  const urls: string[] = [];
+
+  const collect = (sameAs: unknown) => {
+    if (!sameAs) return;
+    if (Array.isArray(sameAs)) {
+      for (const v of sameAs) if (typeof v === 'string') urls.push(v);
+      return;
+    }
+    if (typeof sameAs !== 'string') return;
+
+    const trimmed = sameAs.trim();
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          for (const v of parsed) if (typeof v === 'string') urls.push(v);
+          return;
+        }
+      } catch {
+        // fall through and treat it as a single URL
+      }
+    }
+    urls.push(trimmed);
+  };
+
+  const visit = (node: unknown) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) { node.forEach(visit); return; }
+
+    const obj = node as Record<string, unknown>;
+    if (obj['@graph']) visit(obj['@graph']);
+
+    const author = obj.author;
+    if (author) {
+      for (const a of Array.isArray(author) ? author : [author]) {
+        if (a && typeof a === 'object') collect((a as Record<string, unknown>).sameAs);
+      }
+    }
+  };
+
+  $('script[type="application/ld+json"]').each((_, el) => {
+    const text = $(el).html();
+    if (!text) return;
+    try {
+      visit(JSON.parse(text));
+    } catch {
+      // malformed JSON-LD is common; ignore it
+    }
+  });
+
+  return urls;
 }
 
 function extractAuthorFromJsonLd($: cheerio.CheerioAPI): string | undefined {
