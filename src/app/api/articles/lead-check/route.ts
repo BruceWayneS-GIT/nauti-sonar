@@ -19,6 +19,14 @@ export async function GET(request: NextRequest) {
   const sourceQuery = request.nextUrl.searchParams.get('source') || '';
   const limit = Math.min(Number(request.nextUrl.searchParams.get('limit')) || 25, 100);
 
+  // The ignored list is half the rule — showing only the name match made
+  // flagged bylines look like leads when they are not.
+  const ignoredRows = await prisma.articleLinkedin.findMany({
+    where: { ignored: true },
+    select: { linkedinUrl: true },
+  });
+  const ignoredProfiles = new Set(ignoredRows.map((r) => r.linkedinUrl));
+
   const articles = await prisma.article.findMany({
     where: {
       status: { notIn: ['ARCHIVED'] },
@@ -39,10 +47,12 @@ export async function GET(request: NextRequest) {
 
   const rows = articles.map((a) => {
     const profiles = asStrings(a.linkedinUrls).filter(isLinkedinProfileUrl);
-    const classified = profiles.map((u) => ({
-      profile: normalizeLinkedinUrl(u),
-      isAuthor: isAuthorLinkedinUrl(u, a.author),
-    }));
+    const classified = profiles.map((u) => {
+      const profile = normalizeLinkedinUrl(u);
+      const byName = isAuthorLinkedinUrl(u, a.author);
+      const byFlag = Boolean(profile && ignoredProfiles.has(profile));
+      return { profile, isAuthor: byName || byFlag, why: byName ? 'name' : byFlag ? 'flagged' : '' };
+    });
     const leads = classified.filter((c) => !c.isAuthor);
 
     // A single non-author profile whose slug looks like the byline is the
@@ -54,7 +64,9 @@ export async function GET(request: NextRequest) {
       source: a.source?.name ?? '—',
       author: a.author,
       status: a.status,
-      profiles: classified.map((c) => `${c.profile}${c.isAuthor ? '  [AUTHOR]' : '  [lead]'}`),
+      profiles: classified.map(
+        (c) => `${c.profile}${c.isAuthor ? `  [AUTHOR by ${c.why}]` : '  [lead]'}`,
+      ),
       verdict: leads.length > 0 ? 'KEPT' : 'would be archived',
     };
   });

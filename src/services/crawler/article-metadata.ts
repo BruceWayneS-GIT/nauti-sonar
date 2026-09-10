@@ -137,6 +137,22 @@ export async function extractArticleMetadata(url: string): Promise<ArticleMetada
       } catch {}
     });
 
+    // Links inside the author's byline/bio block belong to whoever wrote the
+    // piece, not the subject of it. Name matching cannot catch handles like
+    // "artversion" or "thetechjesus", but their position on the page gives
+    // them away regardless of what the slug says.
+    const authorAreaUrls = new Set<string>();
+    $(
+      '.author-bio a[href], .author-info a[href], .author-box a[href], ' +
+      '.post-author a[href], .entry-author a[href], .article-author a[href], ' +
+      '.byline a[href], .contributor a[href], .author-card a[href], ' +
+      '[rel="author"] a[href], .authorBio a[href], .author-social a[href]',
+    ).each((_, el) => {
+      const href = $(el).attr('href');
+      if (!href || !href.startsWith('http')) return;
+      authorAreaUrls.add(href.split('?')[0]);
+    });
+
     // Focus on article body content for outbound links
     // Try progressively broader selectors until we find content links
     const contentSelectorGroups = [
@@ -182,6 +198,9 @@ export async function extractArticleMetadata(url: string): Promise<ArticleMetada
 
       // Skip site-wide social accounts (appear in header/footer on every page)
       if (sitewideSocialUrls.has(fullUrl.split('?')[0])) return;
+
+      // Skip anything in the author's own byline/bio block
+      if (authorAreaUrls.has(fullUrl.split('?')[0])) return;
 
       if (seenUrls.has(fullUrl)) return;
       seenUrls.add(fullUrl);
