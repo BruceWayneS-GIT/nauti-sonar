@@ -15,6 +15,7 @@ async function seedUsers() {
     { name: 'Elke', email: 'elke@nautilusmarketing.digital', role: 'member' },
     { name: 'Tom', email: 'tom@nautilusmarketing.digital', role: 'member' },
     { name: 'Cam', email: 'cam@nautilusmarketing.digital', role: 'member' },
+    { name: 'Jake', email: 'jake@nautilusmarketing.digital', role: 'member' },
   ];
 
   const users = [];

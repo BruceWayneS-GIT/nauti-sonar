@@ -43,6 +43,11 @@ async function main() {
       update: {},
       create: { name: 'Cam', email: 'cam@nautilusmarketing.digital', role: 'member' },
     }),
+    prisma.user.upsert({
+      where: { email: 'jake@nautilusmarketing.digital' },
+      update: {},
+      create: { name: 'Jake', email: 'jake@nautilusmarketing.digital', role: 'member' },
+    }),
   ]);
 
   // ─── Sources ──────────────────────────────────────────────────────────────
